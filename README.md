@@ -1,56 +1,136 @@
-# BLE Scanner Project
+BLE-Based Security System for Detecting and Classifying Unknown Devices
+Overview
 
-## Overview
-The BLE Scanner project is designed to scan for Bluetooth Low Energy (BLE) devices in the vicinity. It utilizes the ESP-IDF framework to implement the scanning functionality and parse advertisement data from discovered devices.
+This project implements a BLE-based security system designed to detect, monitor, and classify unknown Bluetooth Low Energy (BLE) devices in a controlled environment.
 
-## Project Structure
-```
-ble-scanner
-├── CMakeLists.txt
-├── partitions.csv
-├── sdkconfig.defaults
+The system is built around an ESP32 (ESP-IDF) firmware that performs continuous BLE scanning and extracts advertisement-level features, combined with PC-side Python tools for receiving, logging, and visualizing the detected devices.
+The project is developed as part of an academic institution project and is structured to support future extensions such as device fingerprinting, behavioral analysis, and localization.
+
+System Architecture
+
+The system is divided into two main parts:
+
+1. ESP32 Firmware (ESP-IDF)
+
+Performs continuous BLE scanning
+
+Parses BLE advertisement packets
+
+Extracts relevant metadata (RSSI, advertisement structure, services, manufacturer data, etc.)
+
+Sends processed scan data to a host PC over HTTP
+
+2. PC-Side Tools (Python)
+
+Receives BLE scan data from the ESP32
+
+Displays and logs detected devices
+
+Enables offline analysis of captured BLE sessions
+
+Serves as a foundation for future classification and fingerprinting logic
+
+ESP32 (BLE Scanner)
+        │
+        │  HTTP
+        ▼
+PC Receiver (Python)
+        │
+        ├── Live device display
+        ├── Session logging
+        └── Offline analysis / visualization
+
+Repository Structure
+BLE-Security-System/
+├── main/                     # ESP-IDF application + PC-side scripts
+│   ├── ble_scan.c/h          # BLE scanning logic
+│   ├── adv_parser.c/h        # Advertisement parsing utilities
+│   ├── http_sender.c/h       # HTTP communication from ESP32
+│   ├── main.c                # ESP-IDF application entry point
+│   ├── ble_popup.py          # PC-side visualization / popup tool
+│   ├── pc_receiver.py        # PC-side HTTP receiver
+│   ├── run_ble_system.bat    # Helper script to start PC-side services
+│   ├── wifi_config.h         # Wi-Fi configuration (local)
+│   ├── CMakeLists.txt
+│   └── idf_component.yml
+│
+├── CMakeLists.txt            # ESP-IDF project configuration
+├── sdkconfig                 # ESP-IDF build configuration
 ├── README.md
-└── main
-    ├── CMakeLists.txt
-    ├── main.c
-    ├── ble_scan.c
-    ├── ble_scan.h
-    ├── adv_parser.c
-    └── adv_parser.h
-```
+├── .gitignore
+└── BLE_JSON_File_Manual.pdf  # Documentation of BLE JSON format
 
-## Files Description
 
-- **CMakeLists.txt**: The main configuration file for CMake, defining the project and build settings.
-- **partitions.csv**: Defines the memory partition layout for the application, including sections for bootloader, application, and data storage.
-- **sdkconfig.defaults**: Contains default configuration settings for the ESP-IDF SDK, controlling various features and parameters.
-- **README.md**: Documentation for the project, providing an overview and instructions.
-- **main/CMakeLists.txt**: CMake configuration specific to the main directory for compiling source files.
-- **main/main.c**: Entry point of the application, initializing the BLE scanner and starting the scanning process.
-- **main/ble_scan.c**: Implementation of BLE scanning functionality, including initialization and scan management.
-- **main/ble_scan.h**: Header file declaring functions and types for BLE scanning.
-- **main/adv_parser.c**: Implementation of advertisement data parsing from scanned devices.
-- **main/adv_parser.h**: Header file declaring functions and types for advertisement data parsing.
+⚠️ Runtime logs, captured BLE sessions, and build artifacts are intentionally excluded from version control.
 
-## Building the Project
-To build the BLE Scanner project, follow these steps:
+Features (Current State)
 
-1. Ensure you have the ESP-IDF environment set up on your machine.
-2. Navigate to the project directory:
-   ```
-   cd ble-scanner
-   ```
-3. Run the following command to build the project:
-   ```
-   idf.py build
-   ```
+✅ BLE scanning using ESP32 (ESP-IDF)
 
-## Running the Application
-After building the project, you can flash it to your ESP device and run the application using:
-```
-idf.py -p <PORT> flash monitor
-```
-Replace `<PORT>` with the appropriate serial port for your device.
+✅ Advertisement packet parsing
 
-## License
-This project is licensed under the MIT License. See the LICENSE file for more details.
+✅ HTTP-based data transmission from ESP32 to PC
+
+✅ Python-based receiver and visualization
+
+✅ Clean separation between firmware, PC tools, and data
+
+✅ Git repository structured for reproducibility and extension
+
+Planned Extensions
+
+The current implementation provides the infrastructure for more advanced security features, including:
+
+🔜 Physical device identification and fingerprinting
+
+🔜 Classification of unknown vs known devices
+
+🔜 Behavioral analysis based on advertisement patterns
+
+🔜 Multi-receiver localization and triangulation
+
+🔜 Offline clustering and statistical analysis
+
+Build & Run (High-Level)
+ESP32 Firmware
+
+Built using ESP-IDF
+
+Standard workflow:
+
+idf.py build
+idf.py flash
+idf.py monitor
+
+PC-Side Tools
+
+Python 3.x required
+
+Run the receiver and visualization scripts from the main/ directory
+
+A helper batch file (run_ble_system.bat) is provided for convenience
+
+Notes on Data Handling
+
+BLE capture files (JSON / CSV) are generated at runtime
+
+These files are not committed to the repository
+
+The repository contains only source code and documentation
+
+Example or synthetic datasets may be added later in a dedicated directory
+
+Project Context
+
+This project is developed as part of an academic security-oriented BLE research effort, focusing on real-world BLE environments and adversarial device detection.
+The emphasis is on system architecture, data integrity, and extensibility, rather than a single fixed experiment.
+
+Authors
+
+Eldar Saltoun
+
+Tomer Mizrachi
+
+Status
+
+🟢 Active development
