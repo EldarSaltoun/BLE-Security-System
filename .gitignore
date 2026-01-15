@@ -1,0 +1,24 @@
+# ================= ESP-IDF =================
+build/
+sdkconfig.old
+
+# ================= IDE =================
+.vscode/
+
+# ================= Python =================
+__pycache__/
+*.pyc
+
+# ================= Runtime data =================
+*.csv
+ble_log.csv
+
+# BLE session captures (experimental data)
+ble_session_*.json
+
+# ================= OS =================
+.DS_Store
+Thumbs.db
+
+
+dependencies.lock
