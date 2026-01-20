@@ -4,7 +4,7 @@ title BLE System Launcher
 REM === CONFIG ===
 set PYTHON=python
 set PROJECT_DIR=%~dp0
-set SERVER_URL=http://10.0.0.30:8000
+set SERVER_URL=http://127.0.0.1:8000
 set STREAM_URL=%SERVER_URL%/api/ble/stream
 
 REM === Start HTTP Receiver ===

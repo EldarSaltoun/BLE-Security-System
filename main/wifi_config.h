@@ -9,7 +9,7 @@
 
 // ---- PC receiver endpoint (pc_receiver.py) ----
 // Example: "http://192.168.1.50:8000/api/ble/ingest"
-#define PC_INGEST_URL "http://10.0.0.30:8000/api/ble/ingest"
+#define PC_INGEST_URL "http://10.0.0.28:8000/api/ble/ingest"
 
 
 // Optional: drop RSSI weaker than this (set to -127 to disable)

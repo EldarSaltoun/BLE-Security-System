@@ -37,12 +37,7 @@ def load_mfg_ids(filename="mfg_ids.csv"):
 
 
 def resolve_mfg_name(mfg) -> str:
-    """Resolve manufacturer identifier to a friendly name.
-
-    Accepts either:
-      - int (e.g. 76)
-      - hex string (e.g. "004C" or "0x004C")
-    """
+    """Resolve manufacturer identifier to a friendly name."""
     try:
         if isinstance(mfg, str):
             s = mfg.strip().lower()
@@ -72,25 +67,31 @@ class DeviceModel:
         if not os.path.exists(self.csv_log):
             with open(self.csv_log, "w", newline="") as f:
                 writer = csv.writer(f)
+                # --- UPDATED HEADER: Added channel and packet_hash ---
                 writer.writerow([
-                    "timestamp_local", "mac", "name", "rssi", "txpwr",
+                    "timestamp_local", "mac", "name", "rssi", "channel", "txpwr",
                     "mfg", "adv_len", "adv_int_ms",
                     "has_services", "n_services_16", "n_services_128",
-                    "mfg_data", "scanner", "timestamp_esp_us"  # <--- ADDED mfg_data
+                    "mfg_data", "packet_hash", "scanner", "timestamp_esp_us"
                 ])
 
-    def ingest(self, mac, rssi, name, txpwr, mfg_id, adv_len,
-               has_services, n_services_16, n_services_128, mfg_data, # <--- ADDED ARG
-               ts_us, scanner):
+    def ingest(self, mac, rssi, channel, name, txpwr, mfg_id, adv_len,
+               has_services, n_services_16, n_services_128, mfg_data,
+               packet_hash, ts_us, scanner):
+        
+        # Parse / Normalize inputs
         rssi = int(rssi)
+        channel = int(channel) if channel is not None else 0  # NEW
         txpwr = int(txpwr)
         adv_len = int(adv_len)
         mfg_id_int = int(mfg_id) if mfg_id is not None else 0
         mfg_resolved = resolve_mfg_name(mfg_id_int)
+        
         has_services = int(has_services) if has_services is not None else 0
         n_services_16 = int(n_services_16) if n_services_16 is not None else 0
         n_services_128 = int(n_services_128) if n_services_128 is not None else 0
-        mfg_data_str = str(mfg_data) if mfg_data else "" # <--- Normalize
+        mfg_data_str = str(mfg_data) if mfg_data else ""
+        packet_hash_str = str(packet_hash) if packet_hash else "" # NEW
 
         now_mono = time.monotonic()
         now_dt = datetime.now()
@@ -100,18 +101,21 @@ class DeviceModel:
         entry = self.devices.get(mac)
         adv_int_ms = None
         if entry and entry.get("last_ts"):
+            # Simple calc; server-side logic handles better precision usually
             adv_int_ms = round((ts_us - entry["last_ts"]) / 1000.0, 1)
 
         self.devices[mac] = {
             "name": name.strip(),
             "rssi": rssi,
+            "channel": channel, # NEW
             "txpwr": txpwr,
             "mfg": mfg_resolved,
             "adv_len": adv_len,
             "has_services": has_services,
             "n_services_16": n_services_16,
             "n_services_128": n_services_128,
-            "mfg_data": mfg_data_str, # <--- Store raw data
+            "mfg_data": mfg_data_str,
+            "packet_hash": packet_hash_str, # NEW
             "last_seen_mono": now_mono,
             "last_seen_str": now_str,
             "last_ts": ts_us,
@@ -123,6 +127,7 @@ class DeviceModel:
             "mac": mac,
             "name": name.strip(),
             "rssi": rssi,
+            "channel": channel, # NEW
             "txpwr": txpwr,
             "mfg": {
                 "raw_hex": f"0x{mfg_id_int:04X}",
@@ -132,7 +137,8 @@ class DeviceModel:
             "has_services": has_services,
             "n_services_16": n_services_16,
             "n_services_128": n_services_128,
-            "mfg_data": mfg_data_str, # <--- Log raw data
+            "mfg_data": mfg_data_str,
+            "packet_hash": packet_hash_str, # NEW
             "scanner": scanner,
             "timestamp_local": now_iso,
             "timestamp_esp_us": int(ts_us),
@@ -145,11 +151,11 @@ class DeviceModel:
         with open(self.csv_log, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([
-                now_iso, mac, name.strip(), rssi, txpwr,
+                now_iso, mac, name.strip(), rssi, channel, txpwr,
                 mfg_resolved, adv_len,
                 adv_int_ms if adv_int_ms else "",
                 has_services, n_services_16, n_services_128,
-                mfg_data_str, scanner, int(ts_us) # <--- CSV Write
+                mfg_data_str, packet_hash_str, scanner, int(ts_us)
             ])
 
     def prune_stale(self):
@@ -207,7 +213,7 @@ class BLEPopupApp:
         self.model = DeviceModel(presence_window_s, min_rssi)
 
         self.root = tk.Tk()
-        self.root.title("BLE Live Presence — ESP32 Scanner (HTTP)")
+        self.root.title("BLE Live Presence — ESP32 Grid Scanner")
 
         top = ttk.Frame(self.root, padding=8)
         top.pack(fill="x")
@@ -224,12 +230,12 @@ class BLEPopupApp:
         self.lbl_present.pack(side="left", padx=(0, 16))
         self.lbl_window.pack(side="left")
 
-        # UPDATED COLUMNS: Added mfg_data
+        # --- UPDATED COLUMNS: Added 'channel' and 'hash' ---
         cols = (
-            "mac", "name", "rssi", "txpwr",
+            "mac", "name", "rssi", "ch", "txpwr",
             "mfg", "adv_len", "adv_int",
             "has_services", "n_services_16", "n_services_128",
-            "mfg_data", "scanner", "last_seen"
+            "mfg_data", "hash", "scanner", "last_seen"
         )
 
         self.tree = ttk.Treeview(
@@ -237,12 +243,17 @@ class BLEPopupApp:
             show="headings", height=18
         )
 
-        # UPDATED COLUMN WIDTHS: Added width for mfg_data (index 10)
+        # --- UPDATED COLUMN WIDTHS & HEADERS ---
         for c, w in zip(
             cols,
-            (170, 150, 60, 60, 200, 80, 80, 90, 110, 120, 150, 100, 120) 
+            # Widths adjusted slightly to fit new columns
+            (160, 140, 50, 40, 50, 180, 60, 70, 80, 80, 80, 100, 80, 100, 100) 
         ):
-            heading_text = "RAW DATA" if c == "mfg_data" else c.upper()
+            if c == "ch": heading_text = "CH"
+            elif c == "hash": heading_text = "HASH"
+            elif c == "mfg_data": heading_text = "RAW DATA"
+            else: heading_text = c.upper()
+            
             self.tree.heading(c, text=heading_text)
             self.tree.column(c, width=w, anchor="w")
 
@@ -277,6 +288,7 @@ class BLEPopupApp:
                     self.model.ingest(
                         ev["mac"].upper(),
                         ev["rssi"],
+                        ev.get("channel", 0),  # NEW
                         ev.get("name", ""),
                         ev.get("txpwr", 0),
                         int(ev.get("mfg_id", 0)),
@@ -284,7 +296,8 @@ class BLEPopupApp:
                         int(ev.get("has_services", 0)),
                         int(ev.get("n_services_16", 0)),
                         int(ev.get("n_services_128", 0)),
-                        ev.get("mfg_data", ""),  # <--- PASS RAW DATA
+                        ev.get("mfg_data", ""),
+                        ev.get("packet_hash", ""), # NEW
                         int(ev["timestamp_esp_us"]),
                         ev.get("scanner", "UNK")
                     )
@@ -306,13 +319,14 @@ class BLEPopupApp:
                 if d["adv_int"] else "-"
             )
             vals = (
-                mac, d["name"], str(d["rssi"]),
+                mac, d["name"], str(d["rssi"]), str(d["channel"]),
                 str(d["txpwr"]), d["mfg"],
                 str(d["adv_len"]), adv_int_str,
                 str(d.get("has_services", 0)),
                 str(d.get("n_services_16", 0)),
                 str(d.get("n_services_128", 0)),
-                d.get("mfg_data", ""), # <--- DISPLAY RAW DATA
+                d.get("mfg_data", ""),
+                d.get("packet_hash", ""),  # NEW
                 d["scanner"], d["last_seen_str"]
             )
             if mac in current_iids:
@@ -350,6 +364,8 @@ class BLEPopupApp:
 
         try:
             self.model.export_json(Path(out_path), meta)
+        except Exception as e:
+            print(f"Export failed: {e}")
         finally:
             self.root.destroy()
 
@@ -361,7 +377,7 @@ class BLEPopupApp:
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Live BLE presence viewer (HTTP)"
+        description="Live BLE Grid Viewer (4-Unit)"
     )
     ap.add_argument(
         "--url", required=True,

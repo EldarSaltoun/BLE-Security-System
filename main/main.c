@@ -13,6 +13,10 @@
 #include "esp_event.h"
 #include "esp_wifi.h"
 
+// --- NEW INCLUDE ---
+#include "ntp_time.h"
+// -------------------
+
 static const char *TAG = "MAIN";
 static EventGroupHandle_t s_wifi_ev = NULL;
 
@@ -75,12 +79,18 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs);
     }
 
+    // 1. Start Wi-Fi and wait for connection
     wifi_init_sta();
 
-    // Start HTTP sender task/queue
+    // 2. --- NEW: SYNC TIME VIA NTP ---
+    // (Must be done after Wi-Fi connects, but before scanning starts)
+    time_sync_init(); 
+    // --------------------------------
+
+    // 3. Start HTTP sender task/queue
     http_sender_init();
 
-    // Start BLE scanner (events get enqueued to HTTP sender)
+    // 4. Start BLE scanner (events get enqueued to HTTP sender)
     ble_scan_start();
 
     while (1) {
