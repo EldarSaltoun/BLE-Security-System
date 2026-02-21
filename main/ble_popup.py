@@ -318,8 +318,10 @@ class BLEPopupApp:
                 f"{d['adv_int']} ms"
                 if d["adv_int"] else "-"
             )
+            ch_val = d.get("channel", 0)
+            ch_str = "N/A" if ch_val == 0 else str(ch_val)
             vals = (
-                mac, d["name"], str(d["rssi"]), str(d["channel"]),
+                mac, d["name"], str(d["rssi"]), ch_str,
                 str(d["txpwr"]), d["mfg"],
                 str(d["adv_len"]), adv_int_str,
                 str(d.get("has_services", 0)),

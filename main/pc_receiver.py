@@ -33,7 +33,7 @@ def _normalize_event(ev: dict, scanner_default="UNKNOWN") -> dict:
 
     # 2. Signal & Location
     out["rssi"] = _to_int(raw_keys.get("rssi", -100))
-    out["channel"] = _to_int(raw_keys.get("channel", 37))
+    out["channel"] = _to_int(raw_keys.get("channel"), 0)
     out["scanner"] = str(raw_keys.get("scanner", scanner_default))
     out["timestamp_esp_us"] = _to_int(raw_keys.get("timestamp_esp_us", raw_keys.get("timestamp", 0)))
 
@@ -62,7 +62,8 @@ def _normalize_event(ev: dict, scanner_default="UNKNOWN") -> dict:
     out["txpwr"] = _to_int(raw_keys.get("txpwr", 0))
     out["mfg_id"] = _to_int(raw_keys.get("mfg_id", 0))
     out["adv_len"] = _to_int(raw_keys.get("adv_len", 0))
-    out["has_services"] = _to_int(raw_keys.get("has_services", 0))
+    out["has_services"] = _to_int(
+    raw_keys.get("has_services", raw_keys.get("has_service_uuid", 0)),0)
     out["n_services_16"] = _to_int(raw_keys.get("n_services_16", 0))
     out["n_services_128"] = _to_int(raw_keys.get("n_services_128", 0))
 
