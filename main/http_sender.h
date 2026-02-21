@@ -22,7 +22,8 @@ typedef struct {
     // NEW — raw manufacturer data for deep inspection
     char     mfg_data_hex[64];
 
-    int64_t  timestamp_esp_us;
+    int64_t  timestamp_epoch_us;   // NTP epoch microseconds (global timeline)
+    int64_t  timestamp_mono_us;    // monotonic microseconds since boot (stable Δt)
     char     scanner[32];
 } ble_http_event_t;
 

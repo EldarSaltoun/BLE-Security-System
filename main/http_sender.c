@@ -77,7 +77,8 @@ static void http_sender_task(void *arg) {
               "\"n_services_16\":%u,"
               "\"n_services_128\":%u,"
               "\"mfg_data\":\"%s\","  // <--- NEW FIELD ADDED HERE
-              "\"timestamp_esp_us\":%lld,"
+              "\"timestamp_epoch_us\":%lld,"
+              "\"timestamp_mono_us\":%lld,"
               "\"scanner\":\"%s\""
             "}",
             ev.mac,
@@ -90,7 +91,8 @@ static void http_sender_task(void *arg) {
             (unsigned)ev.n_services_16,
             (unsigned)ev.n_services_128,
             ev.mfg_data_hex,         // <--- NEW ARGUMENT ADDED HERE
-            (long long)ev.timestamp_esp_us,
+            (long long)ev.timestamp_epoch_us,
+            (long long)ev.timestamp_mono_us,     
             ev.scanner
         );
 

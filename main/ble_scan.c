@@ -65,7 +65,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
 
         // --- CHANGE 1: Use Real-World NTP Time ---
         // Old: int64_t ts_us = esp_timer_get_time();
-        int64_t ts_us = get_time_us();
+        int64_t t_epoch_us = get_time_us();        // NTP epoch time
+        int64_t t_mono_us  = esp_timer_get_time(); // monotonic since boot
         // -----------------------------------------
 
         // --- CHANGE 2: Generate Scanner Name from Config ---
@@ -74,17 +75,18 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         // ---------------------------------------------------
 
         ESP_LOGI(TAG,
-          "BLECSV: mac=%s,rssi=%d,name=%s,txpwr=%d,mfg=0x%04X,"
-          "adv_len=%u,has_svc=%d,svc16=%u,svc128=%u,"
-          "timestamp=%lld,scanner=%s",
-          mac, d->rssi, (*name)?name:"",
-          txpwr, mfg_id,
-          (unsigned)d->length_data,
-          has_service_uuid,
-          n_services_16,
-          n_services_128,
-          (long long)ts_us,
-          scanner_name); // Log the dynamic name
+         "BLECSV: mac=%s,rssi=%d,name=%s,txpwr=%d,mfg=0x%04X,"
+         "adv_len=%u,has_svc=%d,svc16=%u,svc128=%u,"
+         "t_epoch_us=%lld,t_mono_us=%lld,scanner=%s",
+         mac, d->rssi, (*name) ? name : "",
+         txpwr, mfg_id,
+         (unsigned)d->length_data,
+         has_service_uuid,
+         n_services_16,
+         n_services_128,
+         (long long)t_epoch_us,
+         (long long)t_mono_us,
+         scanner_name); // Log the dynamic name
 
         /* ---- enqueue for HTTP sender (popup/PC ingest) ---- */
         ble_http_event_t hev = {0};
@@ -102,7 +104,8 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         // Copy hex string to HTTP event
         strncpy(hev.mfg_data_hex, mfg_hex, sizeof(hev.mfg_data_hex) - 1);
 
-        hev.timestamp_esp_us = ts_us;
+        hev.timestamp_epoch_us = t_epoch_us;
+        hev.timestamp_mono_us  = t_mono_us;
         
         // Use the dynamic scanner name in the HTTP packet
         strncpy(hev.scanner, scanner_name, sizeof(hev.scanner) - 1);

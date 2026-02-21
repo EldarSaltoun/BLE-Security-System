@@ -72,12 +72,12 @@ class DeviceModel:
                     "timestamp_local", "mac", "name", "rssi", "channel", "txpwr",
                     "mfg", "adv_len", "adv_int_ms",
                     "has_services", "n_services_16", "n_services_128",
-                    "mfg_data", "packet_hash", "scanner", "timestamp_esp_us"
+                    "mfg_data", "packet_hash", "scanner", "timestamp_epoch_us"
                 ])
 
     def ingest(self, mac, rssi, channel, name, txpwr, mfg_id, adv_len,
-               has_services, n_services_16, n_services_128, mfg_data,
-               packet_hash, ts_us, scanner):
+           has_services, n_services_16, n_services_128, mfg_data,
+           packet_hash, ts_epoch_us, ts_mono_us, scanner):
         
         # Parse / Normalize inputs
         rssi = int(rssi)
@@ -100,9 +100,12 @@ class DeviceModel:
 
         entry = self.devices.get(mac)
         adv_int_ms = None
-        if entry and entry.get("last_ts"):
-            # Simple calc; server-side logic handles better precision usually
-            adv_int_ms = round((ts_us - entry["last_ts"]) / 1000.0, 1)
+        if entry is not None and entry.get("last_mono_us", 0) and ts_mono_us:
+            dt_ms = (ts_mono_us - entry["last_mono_us"]) / 1000.0
+            if 0 < dt_ms <= 10240:
+                adv_int_ms = round(dt_ms, 1)
+            else:
+                adv_int_ms = None
 
         self.devices[mac] = {
             "name": name.strip(),
@@ -118,7 +121,8 @@ class DeviceModel:
             "packet_hash": packet_hash_str, # NEW
             "last_seen_mono": now_mono,
             "last_seen_str": now_str,
-            "last_ts": ts_us,
+            "last_ts": int(ts_epoch_us),         # epoch/global timeline (for logs)
+            "last_mono_us": int(ts_mono_us),     # monotonic (for adv interval)
             "adv_int": adv_int_ms,
             "scanner": scanner
         }
@@ -141,7 +145,9 @@ class DeviceModel:
             "packet_hash": packet_hash_str, # NEW
             "scanner": scanner,
             "timestamp_local": now_iso,
-            "timestamp_esp_us": int(ts_us),
+            "timestamp_esp_us": int(ts_epoch_us),            # backward-compat name
+            "timestamp_epoch_us": int(ts_epoch_us),          # truthful name
+            "timestamp_mono_us": int(ts_mono_us),            # truthful name
             "adv_int_ms": adv_int_ms
         })
 
@@ -155,7 +161,7 @@ class DeviceModel:
                 mfg_resolved, adv_len,
                 adv_int_ms if adv_int_ms else "",
                 has_services, n_services_16, n_services_128,
-                mfg_data_str, packet_hash_str, scanner, int(ts_us)
+                mfg_data_str, packet_hash_str, scanner, int(ts_epoch_us)
             ])
 
     def prune_stale(self):
@@ -298,7 +304,8 @@ class BLEPopupApp:
                         int(ev.get("n_services_128", 0)),
                         ev.get("mfg_data", ""),
                         ev.get("packet_hash", ""), # NEW
-                        int(ev["timestamp_esp_us"]),
+                        int(ev.get("timestamp_epoch_us", ev.get("timestamp_esp_us", 0))),
+                        int(ev.get("timestamp_mono_us", 0)),
                         ev.get("scanner", "UNK")
                     )
         except Exception as e:

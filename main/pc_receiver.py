@@ -20,10 +20,9 @@ def _to_int(v, default=0):
 
 def _normalize_event(ev: dict, scanner_default="UNKNOWN") -> dict:
     out = {}
-    
-    # Case-insensitive key lookup
+
     raw_keys = {k.lower(): v for k, v in ev.items()}
-    
+
     # 1. Identity
     if "device" in raw_keys:
         dev = raw_keys["device"]
@@ -35,10 +34,20 @@ def _normalize_event(ev: dict, scanner_default="UNKNOWN") -> dict:
     out["rssi"] = _to_int(raw_keys.get("rssi", -100))
     out["channel"] = _to_int(raw_keys.get("channel"), 0)
     out["scanner"] = str(raw_keys.get("scanner", scanner_default))
-    out["timestamp_esp_us"] = _to_int(raw_keys.get("timestamp_esp_us", raw_keys.get("timestamp", 0)))
 
-    # 3. Payload Content
-    # Prefer "mfg_data", fallback to "mfg_data_hex"
+    # TIMING (these lines must be aligned with out["rssi"] etc.)
+    out["timestamp_epoch_us"] = _to_int(
+        raw_keys.get("timestamp_epoch_us",
+            raw_keys.get("timestamp_esp_us", raw_keys.get("timestamp", 0))
+        ),
+        0
+    )
+    out["timestamp_mono_us"] = _to_int(raw_keys.get("timestamp_mono_us", 0), 0)
+
+    # Optional backward-compat
+    out["timestamp_esp_us"] = out["timestamp_epoch_us"]
+
+    # 3. Payload Content  <-- mfg must align with this comment
     mfg = raw_keys.get("mfg_data", "")
     if not mfg:
         mfg = raw_keys.get("mfg_data_hex", "")
