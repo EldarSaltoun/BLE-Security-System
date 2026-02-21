@@ -1,23 +1,29 @@
 #include "http_sender.h"
 #include "wifi_config.h"
-
+#include "esp_system.h"
 #include <string.h>
 #include <stdio.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "esp_timer.h"
 
 #include "esp_log.h"
 #include "esp_http_client.h"
 
 static const char *TAG = "HTTP_SENDER";
 
-#define HTTP_QUEUE_LEN  256
+#define HTTP_QUEUE_LEN  64
 #define HTTP_TASK_STACK 4096
 #define HTTP_TASK_PRIO  5
 
+
 static QueueHandle_t s_q = NULL;
+// --- NEW: enqueue statistics ---
+static uint32_t s_enq_ok   = 0;
+static uint32_t s_enq_drop = 0;
+// --------------------------------
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
     // We don't need body parsing; keep minimal
@@ -50,6 +56,16 @@ static void http_sender_task(void *arg) {
 
     while (1) {
         if (xQueueReceive(s_q, &ev, portMAX_DELAY) != pdTRUE) continue;
+        static int64_t last_log = 0;
+        int64_t now = esp_timer_get_time();
+
+        if (now - last_log > 1000000) {   // once per second
+        last_log = now;
+        ESP_LOGI(TAG, "enq_ok=%u drop=%u q_free=%u",
+                 s_enq_ok,
+                 s_enq_drop,
+                 uxQueueSpacesAvailable(s_q));
+    }
 
         // JSON (must match PC receiver schema)
         // Note: name may contain quotes; keep it safe by truncating at first quote/backslash.
@@ -120,6 +136,7 @@ static void http_sender_task(void *arg) {
 void http_sender_init(void) {
     if (s_q) return;
 
+    ESP_LOGI(TAG, "Free heap before queue: %u", (unsigned)esp_get_free_heap_size());
     s_q = xQueueCreate(HTTP_QUEUE_LEN, sizeof(ble_http_event_t));
     if (!s_q) {
         ESP_LOGE(TAG, "Queue create failed");
@@ -132,5 +149,12 @@ void http_sender_init(void) {
 
 int http_sender_enqueue(const ble_http_event_t *ev) {
     if (!s_q || !ev) return 0;
-    return (xQueueSend(s_q, ev, 0) == pdTRUE) ? 1 : 0;
+
+    if (xQueueSend(s_q, ev, 0) == pdTRUE) {
+        s_enq_ok++;
+        return 1;
+    } else {
+        s_enq_drop++;
+        return 0;
+    }
 }

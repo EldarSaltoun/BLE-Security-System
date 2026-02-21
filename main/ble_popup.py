@@ -99,13 +99,25 @@ class DeviceModel:
         now_iso = now_dt.isoformat(timespec="milliseconds")
 
         entry = self.devices.get(mac)
+
+        # Ensure numeric
+        ts_mono_us = int(ts_mono_us) if ts_mono_us is not None else 0
+
+        prev_mono = int(entry.get("last_mono_us", 0)) if entry else 0
+
+        #debug test
+        if mac:  # choose one MAC you watch
+            print("DBG", mac, "prev", prev_mono, "now", ts_mono_us, "dt_ms", (None if prev_mono==0 else (ts_mono_us-prev_mono)/1000.0))
+       
+       
         adv_int_ms = None
-        if entry is not None and entry.get("last_mono_us", 0) and ts_mono_us:
-            dt_ms = (ts_mono_us - entry["last_mono_us"]) / 1000.0
+        if prev_mono > 0 and ts_mono_us > 0:
+            dt_ms = (ts_mono_us - prev_mono) / 1000.0
             if 0 < dt_ms <= 10240:
                 adv_int_ms = round(dt_ms, 1)
-            else:
-                adv_int_ms = None
+
+        prev_last_mono = entry.get("last_mono_us", 0) if entry else 0
+        new_last_mono = ts_mono_us if ts_mono_us > 0 else prev_last_mono
 
         self.devices[mac] = {
             "name": name.strip(),
@@ -122,7 +134,7 @@ class DeviceModel:
             "last_seen_mono": now_mono,
             "last_seen_str": now_str,
             "last_ts": int(ts_epoch_us),         # epoch/global timeline (for logs)
-            "last_mono_us": int(ts_mono_us),     # monotonic (for adv interval)
+            "last_mono_us": new_last_mono,      
             "adv_int": adv_int_ms,
             "scanner": scanner
         }
@@ -144,8 +156,7 @@ class DeviceModel:
             "mfg_data": mfg_data_str,
             "packet_hash": packet_hash_str, # NEW
             "scanner": scanner,
-            "timestamp_local": now_iso,
-            "timestamp_esp_us": int(ts_epoch_us),            # backward-compat name
+            "timestamp_local": now_iso,       
             "timestamp_epoch_us": int(ts_epoch_us),          # truthful name
             "timestamp_mono_us": int(ts_mono_us),            # truthful name
             "adv_int_ms": adv_int_ms
@@ -320,7 +331,7 @@ class BLEPopupApp:
         current_iids = set(self.tree.get_children())
         live_macs = set(self.model.devices.keys())
 
-        for mac, d in self.model.devices.items():
+        for mac, d in list(self.model.devices.items()):
             adv_int_str = (
                 f"{d['adv_int']} ms"
                 if d["adv_int"] else "-"
