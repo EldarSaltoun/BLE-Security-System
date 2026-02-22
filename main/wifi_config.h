@@ -1,7 +1,7 @@
 #pragma once
 
 // ---- Identify this scanner in your logs/UI ----
-#define SCANNER_ID      "ESP32-S3-01"
+//#define SCANNER_ID      "ESP32-S3-01"
 
 // ---- Wi-Fi credentials ----
 // home wifi
@@ -10,13 +10,21 @@
 */
 
 //riechman wifi
-#define WIFI_SSID       "Runi-WIFI"
-#define WIFI_PASS       "Runi_WiFi_2023"
 
-// ---- PC receiver endpoint (pc_receiver.py) ----
-// Example: "http://192.168.1.50:8000/api/ble/ingest"
-#define PC_INGEST_URL "http://192.168.1.19:8000/api/ble/ingest"
+/*#define WIFI_SSID       "Runi-WIFI"
+#define WIFI_PASS       "Runi_WiFi_2023"
+*/
+
+
+/* Yuli network
+#define WIFI_SSID       "msmsms5"
+#define WIFI_PASS       "moirouterrabotaetotli4no"
+*/
+
+
+#define WIFI_SSID       "Eldar hotspot"
+#define WIFI_PASS       "Eldar1!2@3#"
 
 
 // Optional: drop RSSI weaker than this (set to -127 to disable)
-#define MIN_RSSI_FILTER (-127)
+#define MIN_RSSI_FILTER (-100)

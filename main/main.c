@@ -56,13 +56,20 @@ static void wifi_init_sta(void) {
     strncpy((char *)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
     strncpy((char *)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password) - 1);
 
-    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    // FIX 1: Relax threshold for mobile hotspots (which often toggle between WPA2/WPA3)
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    
+    ESP_LOGI(TAG, "Starting Wi-Fi and disabling Power Save for high-throughput...");
     ESP_ERROR_CHECK(esp_wifi_start());
+
+    // FIX 2: FORCE RADIO ALWAYS-ON
+    // This stops the 'DELBA' drops and keeps latency low for your large batches.
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     ESP_LOGI(TAG, "Connecting to Wi-Fi SSID=%s ...", WIFI_SSID);
     xEventGroupWaitBits(s_wifi_ev, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
@@ -83,14 +90,12 @@ void app_main(void) {
     wifi_init_sta();
 
     // 2. --- NEW: SYNC TIME VIA NTP ---
-    // (Must be done after Wi-Fi connects, but before scanning starts)
     time_sync_init(); 
-    // --------------------------------
 
     // 3. Start HTTP sender task/queue
     http_sender_init();
 
-    // 4. Start BLE scanner (events get enqueued to HTTP sender)
+    // 4. Start BLE scanner
     ble_scan_start();
 
     while (1) {

@@ -1,5 +1,6 @@
 #include "http_sender.h"
-#include "scanner_config.h" // Prioritizing integer SCANNER_ID
+#include "wifi_config.h"
+#include "scanner_config.h" 
 #include "esp_system.h"
 #include <string.h>
 #include <stdio.h>
@@ -10,10 +11,16 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "mdns.h"
+#include "driver/gpio.h" // NEW: Added for hardware LED control
 
-#define BATCH_SIZE      50      // Reduced to 50 for more frequent, smaller bursts
+// --- Hardware Diagnostics Config ---
+#define STATUS_LED_GPIO 48      // Common built-in LED for ESP32-S3 (Change if needed)
+
+// --- Preserving Your Working Parameters ---
+#define BATCH_SIZE      50      
 #define FLUSH_MS        100     
-#define HTTP_QUEUE_LEN  512     // Large queue to prevent drops during Wi-Fi lag
+#define HTTP_QUEUE_LEN  512     
 #define HTTP_TASK_STACK 10240
 #define HTTP_TASK_PRIO  5
 #define JSON_BUF_SIZE   (BATCH_SIZE * 512)
@@ -23,15 +30,75 @@ static QueueHandle_t s_q = NULL;
 static uint32_t s_enq_ok = 0;
 static uint32_t s_enq_drop = 0;
 
+static char dynamic_url[128] = ""; 
+
 static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
     return ESP_OK;
 }
 
+// Helper to set LED level
+static void set_led(int level) {
+    gpio_set_level(STATUS_LED_GPIO, level);
+}
+
+/**
+ * Resolves the laptop's IP address wirelessly using mDNS.
+ */
+static esp_err_t resolve_receiver_url() {
+    ESP_LOGI(TAG, "Locating grid-server.local via mDNS...");
+    
+    esp_err_t err = mdns_init();
+    if (err) {
+        ESP_LOGE(TAG, "mDNS Init failed: %d", err);
+        return err;
+    }
+
+    struct esp_ip4_addr addr;
+    addr.addr = 0;
+
+    // Rapid blink (5Hz) during the active 5-second query window
+    for(int i = 0; i < 5; i++) {
+        set_led(1); vTaskDelay(pdMS_TO_TICKS(100));
+        set_led(0); vTaskDelay(pdMS_TO_TICKS(100));
+    }
+
+    err = mdns_query_a("grid-server", 5000, &addr);
+    if (err == ESP_OK) {
+        snprintf(dynamic_url, sizeof(dynamic_url), "http://" IPSTR ":8000/api/ble/ingest", IP2STR(&addr));
+        ESP_LOGI(TAG, "Wireless Link Established! Target: %s", dynamic_url);
+        return ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "Discovery failed. Is pc_receiver.py running?");
+        return ESP_FAIL;
+    }
+}
+
 static void http_sender_task(void *arg) {
+    // 1. Initialize Diagnostic LED
+    gpio_reset_pin(STATUS_LED_GPIO);
+    gpio_set_direction(STATUS_LED_GPIO, GPIO_MODE_OUTPUT);
+    set_led(0);
+
+    // 2. Wait until we find the laptop wirelessly before starting
+    while (resolve_receiver_url() != ESP_OK) {
+        ESP_LOGW(TAG, "PC not found. Retrying discovery in 5s...");
+        
+        // Fast Strobe indicates "Connected to Wi-Fi but searching for PC"
+        for(int i = 0; i < 10; i++) {
+            set_led(1); vTaskDelay(pdMS_TO_TICKS(100));
+            set_led(0); vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
+    // 3. Link Established: Set LED to SOLID ON
+    set_led(1);
+
+    // 4. Initialize HTTP client with the dynamic URL
     esp_http_client_config_t cfg = {
-        .url = "http://192.168.1.19:8000/api/ble/ingest",
+        .url = dynamic_url,
         .method = HTTP_METHOD_POST,
-        .timeout_ms = 3000,     // 3-second timeout to handle Wi-Fi jitter
+        .timeout_ms = 3000,
         .event_handler = http_event_handler,
         .keep_alive_enable = true,
     };
@@ -59,7 +126,6 @@ static void http_sender_task(void *arg) {
         }
 
         if (batch_count > 0 && (batch_count >= BATCH_SIZE || (now - last_flush) > (FLUSH_MS * 1000))) {
-            // Using %d for the integer SCANNER_ID from scanner_config.h
             int pos = snprintf(json_buffer, JSON_BUF_SIZE, "{\"scanner\":%d,\"events\":[", (int)SCANNER_ID);
             
             for (int i = 0; i < batch_count; i++) {
@@ -83,7 +149,10 @@ static void http_sender_task(void *arg) {
 
             esp_http_client_set_post_field(client, json_buffer, strlen(json_buffer));
             esp_err_t err = esp_http_client_perform(client);
-            if (err != ESP_OK) ESP_LOGW(TAG, "POST failed: %s", esp_err_to_name(err));
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "POST failed: %s", esp_err_to_name(err));
+                // Optional: Turn LED OFF or Fast Blink on POST failure to show transport error
+            }
             
             batch_count = 0;
             last_flush = now;

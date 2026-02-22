@@ -24,7 +24,15 @@ static const char *TAG = "BLE_SCAN";
 
 #define BLE_ADDR_STR_LEN 18
 
-// Helper to format MAC address
+// --- PERFORMANCE TUNING CONSTANTS ---
+// NimBLE uses 0.625ms units.
+// 160 * 0.625 = 100ms (Total Cycle)
+// 120 * 0.625 = 75ms  (Listening Window)
+// This leaves 25ms for Wi-Fi to send BATCH_SIZE 50 without fighting.
+#define SCAN_INTERVAL 160
+#define SCAN_WINDOW   120
+// ------------------------------------
+
 static void addr_to_str(const uint8_t *addr, char *out)
 {
     snprintf(out, BLE_ADDR_STR_LEN,
@@ -58,13 +66,12 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         (void)http_sender_enqueue(&hev);
         return 0;
     }
-    //
 
     if (ev->type == BLE_GAP_EVENT_DISC_COMPLETE) {
         struct ble_gap_disc_params p = {
             .passive = 1,
-            .itvl = 0x0010,
-            .window = 0x0010,
+            .itvl = SCAN_INTERVAL, // UPDATED: 100ms cycle
+            .window = SCAN_WINDOW, // UPDATED: 75ms scan, 25ms Wi-Fi gap
             .filter_policy = 0,
             .limited = 0,
             .filter_duplicates = 0
@@ -99,8 +106,8 @@ void ble_scan_start(void)
 
     struct ble_gap_disc_params p = {
         .passive = 1,
-        .itvl = 0x0010,
-        .window = 0x0010,
+        .itvl = SCAN_INTERVAL, // UPDATED: Match new coexistence timing
+        .window = SCAN_WINDOW, // UPDATED: Match new coexistence timing
         .filter_policy = 0,
         .limited = 0,
         .filter_duplicates = 0
@@ -110,6 +117,7 @@ void ble_scan_start(void)
     if (rc) {
         ESP_LOGE(TAG, "ble_gap_disc start failed rc=%d", rc);
     } else {
-        ESP_LOGI(TAG, "BLE scan started (passive, dup-filter OFF)");
+        ESP_LOGI(TAG, "BLE scan started (75ms Window / 100ms Interval)");
+        ESP_LOGI(TAG, "25ms gap reserved for Wi-Fi Batching (Size: 50)");
     }
 }
