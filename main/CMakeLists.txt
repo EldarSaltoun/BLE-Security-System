@@ -12,6 +12,7 @@ idf_component_register(
         esp_wifi 
         esp_event
         lwip                # Networking
-        bt                  # Bluetooth (for esp_bt.h)
-        esp_http_client     # HTTP (for esp_http_client.h)
+        bt                  # Bluetooth (Includes NimBLE references)
+        esp_http_client     # HTTP
+        mbedtls             # Required for Base64 encoding
 )

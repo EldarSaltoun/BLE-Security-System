@@ -35,85 +35,30 @@ static void addr_to_str(const uint8_t *addr, char *out)
 
 static int gap_event(struct ble_gap_event *ev, void *arg)
 {
-    (void)arg;
-
     if (ev->type == BLE_GAP_EVENT_DISC) {
         const struct ble_gap_disc_desc *d = &ev->disc;
 
-        char mac[BLE_ADDR_STR_LEN];
-        addr_to_str(d->addr.val, mac);
-
-        char name[64];
-        adv_find_name(d->data, d->length_data, name, sizeof(name));
-
-        int8_t txpwr;
-        uint16_t mfg_id;
+        ble_minimal_event_t hev = {0};
         
-        // Buffer for raw hex data (metrics)
-        char mfg_hex[64] = ""; 
-
-        // Extract metrics
-        adv_extract_metrics(d->data, d->length_data, &txpwr, &mfg_id, mfg_hex, sizeof(mfg_hex));
-
-        bool has_service_uuid;
-        uint8_t n_services_16;
-        uint8_t n_services_128;
-        adv_extract_services(d->data, d->length_data,
-                             &has_service_uuid,
-                             &n_services_16,
-                             &n_services_128);
-
-        // --- CHANGE 1: Use Real-World NTP Time ---
-        // Old: int64_t ts_us = esp_timer_get_time();
-        int64_t t_epoch_us = get_time_us();        // NTP epoch time
-        int64_t t_mono_us  = esp_timer_get_time(); // monotonic since boot
-        // -----------------------------------------
-
-        // --- CHANGE 2: Generate Scanner Name from Config ---
-        char scanner_name[16];
-        snprintf(scanner_name, sizeof(scanner_name), "ESP32-S3-%02d", SCANNER_ID);
-        // ---------------------------------------------------
-
-        ESP_LOGI(TAG,
-         "BLECSV: mac=%s,rssi=%d,name=%s,txpwr=%d,mfg=0x%04X,"
-         "adv_len=%u,has_svc=%d,svc16=%u,svc128=%u,"
-         "t_epoch_us=%lld,t_mono_us=%lld,scanner=%s",
-         mac, d->rssi, (*name) ? name : "",
-         txpwr, mfg_id,
-         (unsigned)d->length_data,
-         has_service_uuid,
-         n_services_16,
-         n_services_128,
-         (long long)t_epoch_us,
-         (long long)t_mono_us,
-         scanner_name); // Log the dynamic name
-
-        /* ---- enqueue for HTTP sender (popup/PC ingest) ---- */
-        ble_http_event_t hev = {0};
-        strncpy(hev.mac, mac, sizeof(hev.mac) - 1);
-        hev.rssi = (int8_t)d->rssi;
-        strncpy(hev.name, name, sizeof(hev.name) - 1);
-        hev.txpwr = txpwr;
-        hev.mfg_id = mfg_id;
-        hev.adv_len = (uint8_t)d->length_data;
-
-        hev.has_service_uuid = has_service_uuid;
-        hev.n_services_16 = n_services_16;
-        hev.n_services_128 = n_services_128;
-
-        // Copy hex string to HTTP event
-        strncpy(hev.mfg_data_hex, mfg_hex, sizeof(hev.mfg_data_hex) - 1);
-
-        hev.timestamp_epoch_us = t_epoch_us;
-        hev.timestamp_mono_us  = t_mono_us;
+        // 1. Copy raw metadata
+        memcpy(hev.addr, d->addr.val, 6);
+        hev.addr_type = d->addr.type;
+        hev.adv_type  = d->event_type;
+        hev.rssi      = (int8_t)d->rssi;
         
-        // Use the dynamic scanner name in the HTTP packet
-        strncpy(hev.scanner, scanner_name, sizeof(hev.scanner) - 1);
+        // 2. Copy raw payload
+        hev.payload_len = (d->length_data > 31) ? 31 : d->length_data;
+        memcpy(hev.payload, d->data, hev.payload_len);
 
+        // 3. Timestamps
+        hev.timestamp_epoch_us = get_time_us();
+        hev.timestamp_mono_us  = esp_timer_get_time();
+
+        // 4. Enqueue (non-blocking)
         (void)http_sender_enqueue(&hev);
-
         return 0;
     }
+    //
 
     if (ev->type == BLE_GAP_EVENT_DISC_COMPLETE) {
         struct ble_gap_disc_params p = {

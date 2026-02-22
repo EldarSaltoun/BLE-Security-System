@@ -7,6 +7,9 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+import base64
+import zlib
+from ble_adv_parser import AdvParser # The parsing file we created
 
 import requests
 import tkinter as tk
@@ -300,25 +303,43 @@ class BLEPopupApp:
                     if not line or not line.startswith("data: "):
                         continue
 
+                    # Load the minimalist event from the stream
                     ev = json.loads(line[6:])
 
-                    self.model.ingest(
-                        ev["mac"].upper(),
-                        ev["rssi"],
-                        ev.get("channel", 0),  # NEW
-                        ev.get("name", ""),
-                        ev.get("txpwr", 0),
-                        int(ev.get("mfg_id", 0)),
-                        ev.get("adv_len", 0),
-                        int(ev.get("has_services", 0)),
-                        int(ev.get("n_services_16", 0)),
-                        int(ev.get("n_services_128", 0)),
-                        ev.get("mfg_data", ""),
-                        ev.get("packet_hash", ""), # NEW
-                        int(ev.get("timestamp_epoch_us", ev.get("timestamp_esp_us", 0))),
-                        int(ev.get("timestamp_mono_us", 0)),
-                        ev.get("scanner", "UNK")
-                    )
+                    try:
+                        # 1. Decode the raw payload from Base64
+                        raw_payload = base64.b64decode(ev["p"])
+                        
+                        # 2. Re-calculate the packet hash locally for the 'HASH' column
+                        p_hash = f"{zlib.crc32(raw_payload) & 0xFFFFFFFF:08X}"
+
+                        # 3. Parse the raw bytes into the fields the GUI expects
+                        parsed = AdvParser.parse(raw_payload)
+
+                        # 4. Ingest into model using the same keys as before 
+                        # to keep visuals/logs identical
+                        self.model.ingest(
+                            mac=ev["a"].upper(),
+                            rssi=ev["r"],
+                            channel=ev.get("c", 0),
+                            name=parsed["name"],
+                            txpwr=parsed["tx_pwr"] if parsed["tx_pwr"] is not None else 0,
+                            mfg_id=parsed["mfg_id"] if parsed["mfg_id"] is not None else 0,
+                            adv_len=len(raw_payload),
+                            has_services=1 if (parsed["services_16"] or parsed["services_128"]) else 0,
+                            n_services_16=len(parsed["services_16"]),
+                            n_services_128=len(parsed["services_128"]),
+                            mfg_data=parsed["mfg_data_hex"],
+                            packet_hash=p_hash,
+                            ts_epoch_us=ev["ts"],
+                            # CHANGE THIS LINE: Use ev["ts"] instead of ev.get("tm", 0)
+                            ts_mono_us=ev["ts"], 
+                            scanner=ev.get("scanner", "UNK")
+                        )
+                    except Exception as parse_err:
+                        print(f"[WARN] Failed to parse packet: {parse_err}")
+                        continue
+
         except Exception as e:
             print(f"[ERR] HTTP stream failed: {e}", file=sys.stderr)
 

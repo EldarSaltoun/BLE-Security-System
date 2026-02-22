@@ -1,27 +1,43 @@
 @echo off
-title BLE System Launcher
+title BLE Security System — Distributed Launcher
+color 0b
 
-REM === CONFIG ===
+REM === CONFIGURATION ===
 set PYTHON=python
 set PROJECT_DIR=%~dp0
 set SERVER_URL=http://127.0.0.1:8000
 set STREAM_URL=%SERVER_URL%/api/ble/stream
 
-REM === Start HTTP Receiver ===
-echo Starting HTTP receiver...
-start "BLE HTTP Receiver" cmd /k ^
-  cd /d "%PROJECT_DIR%" ^&^& ^
-  %PYTHON% -m uvicorn pc_receiver:app --host 0.0.0.0 --port 8000
+echo ==================================================
+echo   BLE SECURITY SYSTEM : MINIMAL-ESP / MAX-PYTHON  
+echo ==================================================
+echo.
 
-REM === Give server time to start ===
-timeout /t 2 >nul
-
-REM === Start Popup ===
-echo Starting BLE popup...
-start "BLE Popup" cmd /k ^
+REM === STEP 1: Start High-Throughput Receiver ===
+echo [1/2] Starting Batched HTTP Receiver...
+start "BLE Collector (Receiver)" cmd /k ^
   cd /d "%PROJECT_DIR%" ^&^& ^
+  echo Launching Flask server for batched ingest... ^&^& ^
+  %PYTHON% pc_receiver.py
+
+REM === STEP 2: Wait for Server Bind ===
+echo.
+echo Waiting for server to initialize...
+timeout /t 3 >nul
+
+REM === STEP 3: Start Real-Time Popup GUI ===
+echo [2/2] Starting Live Presence Popup...
+start "BLE Viewer (Popup)" cmd /k ^
+  cd /d "%PROJECT_DIR%" ^&^& ^
+  echo Initializing GUI with raw payload parsing... ^&^& ^
   %PYTHON% ble_popup.py --url %STREAM_URL% --mfg-db mfg_ids.csv
 
 echo.
-echo BLE system started successfully.
-echo You may now power the ESP32.
+echo --------------------------------------------------
+echo BLE System initialized successfully.
+echo - High-Performance Ingest: ACTIVE
+echo - Batch Processing: ENABLED
+echo.
+echo You may now power on the ESP32-S3 boards.
+echo --------------------------------------------------
+pause

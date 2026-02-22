@@ -1,118 +1,57 @@
-# pc_receiver.py
-# Updated: Auto-generates Packet Hash from Raw Data
-# Run: uvicorn pc_receiver:app --host 0.0.0.0 --port 8000
-
-from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+import base64
 import json
 import queue
-import time
-import zlib  # <--- Added for hashing
+from flask import Flask, request, jsonify, Response
+from ble_adv_parser import AdvParser
 
-app = FastAPI()
-event_queue = queue.Queue(maxsize=10000)
+app = Flask(__name__)
 
-def _to_int(v, default=0):
-    try:
-        return int(v)
-    except:
-        return default
+# A thread-safe queue to pass data from 'ingest' to the 'stream'
+data_queue = queue.Queue(maxsize=100)
 
-def _normalize_event(ev: dict, scanner_default="UNKNOWN") -> dict:
-    out = {}
+@app.route('/api/ble/ingest', methods=['POST'])
+def ingest():
+    data = request.get_json()
+    if not data:
+        return "Invalid JSON", 400
 
-    raw_keys = {k.lower(): v for k, v in ev.items()}
+    scanner_id = data.get('scanner', 'unknown')
+    events = data.get('events', [])
 
-    # 1. Identity
-    if "device" in raw_keys:
-        dev = raw_keys["device"]
-        out["mac"] = dev.get("mac", "UNKNOWN").upper()
-    else:
-        out["mac"] = str(raw_keys.get("mac", raw_keys.get("addr", "UNKNOWN"))).upper()
+    for ev in events:
+        # 1. Decode payload
+        try:
+            # We just pass the raw event down the stream to the popup
+            # The popup's reader_thread (the one we updated earlier) 
+            # will handle the AdvParser.parse() part locally.
+            
+            # Add scanner ID to the individual event
+            ev['scanner'] = scanner_id
+            
+            # Put it in the queue for the stream (non-blocking)
+            try:
+                data_queue.put_nowait(ev)
+            except queue.Full:
+                pass # Drop if popup is too slow
+                
+        except Exception as e:
+            print(f"Error queuing event: {e}")
 
-    # 2. Signal & Location
-    out["rssi"] = _to_int(raw_keys.get("rssi", -100))
-    out["channel"] = _to_int(raw_keys.get("channel"), 0)
-    out["scanner"] = str(raw_keys.get("scanner", scanner_default))
+    return jsonify({"status": "ok", "count": len(events)}), 200
 
-    # TIMING (these lines must be aligned with out["rssi"] etc.)
-    out["timestamp_epoch_us"] = _to_int(
-        raw_keys.get("timestamp_epoch_us",
-            raw_keys.get("timestamp_esp_us", raw_keys.get("timestamp", 0))
-        ),
-        0
-    )
-    out["timestamp_mono_us"] = _to_int(raw_keys.get("timestamp_mono_us", 0), 0)
+def event_stream():
+    """Generator that feeds the SSE stream for ble_popup.py"""
+    while True:
+        # Get data from the queue
+        ev = data_queue.get()
+        # Format as SSE (data: <json>\n\n)
+        yield f"data: {json.dumps(ev)}\n\n"
 
-    # Optional backward-compat
-    out["timestamp_esp_us"] = out["timestamp_epoch_us"]
-
-    # 3. Payload Content  <-- mfg must align with this comment
-    mfg = raw_keys.get("mfg_data", "")
-    if not mfg:
-        mfg = raw_keys.get("mfg_data_hex", "")
-    out["mfg_data"] = str(mfg)
-    
-    # --- FIX: Auto-Generate Packet Hash ---
-    # If the ESP32 didn't send a hash, we create one from the unique payload.
-    existing_hash = str(raw_keys.get("packet_hash", ""))
-    if existing_hash:
-        out["packet_hash"] = existing_hash
-    elif out["mfg_data"]:
-        # Create a short 8-char unique ID based on the payload content
-        # This ensures Unit 1 and Unit 2 get the SAME hash for the SAME packet.
-        crc = zlib.crc32(out["mfg_data"].encode())
-        out["packet_hash"] = f"{crc:08X}"
-    else:
-        out["packet_hash"] = ""
-    # --------------------------------------
-
-    out["name"] = str(raw_keys.get("name", ""))
-    out["txpwr"] = _to_int(raw_keys.get("txpwr", 0))
-    out["mfg_id"] = _to_int(raw_keys.get("mfg_id", 0))
-    out["adv_len"] = _to_int(raw_keys.get("adv_len", 0))
-    out["has_services"] = _to_int(
-    raw_keys.get("has_services", raw_keys.get("has_service_uuid", 0)),0)
-    out["n_services_16"] = _to_int(raw_keys.get("n_services_16", 0))
-    out["n_services_128"] = _to_int(raw_keys.get("n_services_128", 0))
-
-    return out
-
-@app.post("/api/ble/ingest")
-async def ingest(req: Request):
-    try:
-        payload = await req.json()
-        
-        if "events" in payload and isinstance(payload["events"], list):
-            scanner_id = payload.get("scanner_id", "UNKNOWN")
-            for ev in payload["events"]:
-                _push(_normalize_event(ev, scanner_id))
-        else:
-            scanner_id = payload.get("scanner", "UNKNOWN")
-            _push(_normalize_event(payload, scanner_id))
-
-        return JSONResponse({"ok": True})
-    except Exception as e:
-        print(f"[ERR] Ingest failed: {e}")
-        return JSONResponse({"ok": False}, status_code=500)
-
-def _push(ev: dict):
-    try:
-        if not isinstance(ev, dict) or not ev: return
-        ev["pc_rx_time"] = time.time()
-        event_queue.put_nowait(ev)
-    except queue.Full:
-        pass 
-
-@app.get("/api/ble/stream")
+@app.route('/api/ble/stream')
 def stream():
-    def gen():
-        while True:
-            ev = event_queue.get()
-            yield f"data: {json.dumps(ev)}\n\n"
-    return StreamingResponse(gen(), media_type="text/event-stream")
+    """The endpoint ble_popup.py connects to"""
+    return Response(event_stream(), mimetype="text/event-stream")
 
-if __name__ == "__main__":
-    import uvicorn
-    # Listening on 0.0.0.0 allows the ESP32s to connect
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+if __name__ == '__main__':
+    # Use threaded=True so ingest and stream can run at the same time
+    app.run(host='0.0.0.0', port=8000, debug=False, threaded=True)
