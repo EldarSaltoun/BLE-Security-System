@@ -60,9 +60,7 @@ class DeviceModel:
                     "packet_hash", "scanner", "timestamp_epoch_us"
                 ])
 
-    # --- THE CRITICAL FIX IS HERE ---
     def prune_stale(self):
-        """Removes devices that haven't been seen within the time window."""
         cutoff = time.monotonic() - self.presence_window_s
         stale = [mac for mac, d in self.devices.items() if d["last_seen_mono"] < cutoff]
         for mac in stale:
@@ -113,7 +111,7 @@ class DeviceModel:
 
 # ---------------- App ----------------
 class BLEPopupApp:
-    def __init__(self, stream_url, json_out="session_summary.json"):
+    def __init__(self, stream_url, json_out):
         self.stream_url = stream_url
         self.json_out = json_out
         self.start_iso = datetime.now().isoformat(timespec="seconds")
@@ -182,17 +180,29 @@ class BLEPopupApp:
         self.root.after(300, self.refresh_ui)
 
     def on_close(self):
+        print(f"[INFO] Closing application and saving session...")
         self.stop_flag.set()
         if self.json_out:
             meta = {"start": self.start_iso, "devices": len(self.model.devices)}
-            try: self.model.export_json(Path(self.json_out), meta)
-            except Exception: pass
+            try: 
+                self.model.export_json(Path(self.json_out), meta)
+                print(f"[SUCCESS] Session summary saved to {self.json_out}")
+            except Exception as e: 
+                print(f"[ERROR] Failed to save JSON summary: {e}")
         self.root.destroy()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
-    parser.add_argument("--json-out", default="session_summary.json")
+    # Default is None so we can generate the unique timestamped name
+    parser.add_argument("--json-out", default=None, help="Output JSON filename")
     args = parser.parse_args()
+    
+    # --- UNIQUE FILENAME LOGIC ---
+    if args.json_out is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        args.json_out = f"session_{timestamp}.json"
+    
     load_mfg_ids()
+    print(f"[INFO] Initializing app. Data will be saved to: {args.json_out}")
     BLEPopupApp(args.url, json_out=args.json_out).root.mainloop()
