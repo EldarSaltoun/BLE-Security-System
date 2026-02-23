@@ -11,6 +11,7 @@ idf_component_register(
         esp_netif 
         esp_wifi 
         esp_event
+        esp_http_server
         lwip                # Networking
         bt                  # Bluetooth (Includes NimBLE references)
         esp_http_client     # HTTP
