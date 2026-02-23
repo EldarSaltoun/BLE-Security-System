@@ -94,7 +94,7 @@ class DeviceModel:
             "last_mono_us": int(ts_mono_us), "adv_int": adv_int_ms, "scanner": scanner
         }
 
-        self.events.append({"mac": mac, "rssi": int(rssi), "scanner": scanner, "ts": int(ts_epoch_us)})
+        self.events.append({"mac": mac, "rssi": int(rssi), "channel": int(channel), "scanner": scanner, "ts": int(ts_epoch_us)})
 
         with open(self.csv_log, "a", newline="") as f:
             writer = csv.writer(f)

@@ -11,6 +11,7 @@ typedef struct {
     uint8_t  addr_type;
     uint8_t  adv_type;
     int8_t   rssi;
+    uint8_t  channel;
     uint8_t  payload_len;
     uint8_t  payload[31];       // Raw bytes
     int64_t  timestamp_epoch_us;

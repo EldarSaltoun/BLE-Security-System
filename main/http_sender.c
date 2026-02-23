@@ -137,12 +137,16 @@ static void http_sender_task(void *arg) {
 
                 int space_left = JSON_BUF_SIZE - pos - 5;
                 int written = snprintf(json_buffer + pos, space_left,
-                    "%s{\"a\":\"%02X%02X%02X%02X%02X%02X\",\"at\":%d,\"et\":%d,\"r\":%d,\"ts\":%lld,\"p\":\"%s\"}",
+                    "%s{\"a\":\"%02X%02X%02X%02X%02X%02X\",\"at\":%d,\"et\":%d,\"r\":%d,\"c\":%d,\"ts\":%lld,\"p\":\"%s\"}",
                     (i == 0) ? "" : ",",
                     batch[i].addr[5], batch[i].addr[4], batch[i].addr[3], 
                     batch[i].addr[2], batch[i].addr[1], batch[i].addr[0],
-                    batch[i].addr_type, batch[i].adv_type, (int)batch[i].rssi,
-                    (long long)batch[i].timestamp_epoch_us, b64_payload);
+                    batch[i].addr_type, 
+                    batch[i].adv_type, 
+                    (int)batch[i].rssi,
+                    (int)batch[i].channel, // Matches the new "%c":%d
+                    (long long)batch[i].timestamp_epoch_us, 
+                    b64_payload);
                 if (written > 0 && written < space_left) pos += written;
             }
             strcpy(json_buffer + pos, "]}");

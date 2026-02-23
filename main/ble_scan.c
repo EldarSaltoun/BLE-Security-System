@@ -53,7 +53,7 @@ static int gap_event(struct ble_gap_event *ev, void *arg)
         hev.addr_type = d->addr.type;
         hev.adv_type  = d->event_type;
         hev.rssi      = (int8_t)d->rssi;
-        
+        hev.channel   = 0;
         // 2. Copy raw payload
         hev.payload_len = (d->length_data > 31) ? 31 : d->length_data;
         memcpy(hev.payload, d->data, hev.payload_len);
