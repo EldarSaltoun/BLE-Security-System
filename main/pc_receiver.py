@@ -3,6 +3,8 @@ import json
 import queue
 import threading
 import socket
+import time
+import requests
 from flask import Flask, request, jsonify, Response
 from zeroconf import ServiceInfo, Zeroconf  # NEW: For wireless discovery
 
@@ -10,6 +12,10 @@ app = Flask(__name__)
 
 # Thread-safe queue to pass data from 'ingest' to the 'stream'
 data_queue = queue.Queue(maxsize=1000)
+
+# --- NEW: Track Active Scanners ---
+# Dictionary to hold: scanner_id -> {"ip": "192.168.X.X", "last_seen": timestamp}
+active_scanners = {}
 
 def start_mdns(ip_address, port):
     """
@@ -45,13 +51,61 @@ def ingest():
     if not data:
         return "Invalid JSON", 400
 
-    scanner_id = data.get('scanner', 'unknown')
+    scanner_id = str(data.get('scanner', 'unknown'))
+    client_ip = request.remote_addr # Capture the ESP32's IP!
+    
+    # Update our tracker
+    active_scanners[scanner_id] = {
+        "ip": client_ip,
+        "last_seen": time.time()
+    }
+
     events = data.get('events', [])
 
     # Fast-Ack: Process in background and return immediately
     threading.Thread(target=process_batch_async, args=(scanner_id, events)).start()
 
     return jsonify({"status": "ack"}), 200
+
+# --- NEW: Control API Endpoints ---
+@app.route('/api/control/scanners', methods=['GET'])
+def get_scanners():
+    """Returns a list of currently active scanners and their IPs"""
+    # Filter out scanners that haven't been seen in 30 seconds
+    current_time = time.time()
+    alive = {k: v for k, v in active_scanners.items() if current_time - v['last_seen'] < 30}
+    return jsonify(alive)
+
+@app.route('/api/control/send', methods=['POST'])
+def send_command():
+    """Proxies a command to a specific ESP32 or all of them"""
+    data = request.get_json()
+    target = str(data.get('target')) # "all" or specific scanner_id
+    state = data.get('state')   # 1 or 0 (optional)
+    mode = data.get('mode')     # 0, 37, 38, 39 (optional)
+    
+    params = []
+    if state is not None: params.append(f"state={state}")
+    if mode is not None: params.append(f"mode={mode}")
+    query_string = "&".join(params)
+
+    targets = list(active_scanners.keys()) if target == "all" else [target]
+    
+    results = {}
+    for t_id in targets:
+        if t_id in active_scanners:
+            ip = active_scanners[t_id]['ip']
+            url = f"http://{ip}/cmd?{query_string}"
+            try:
+                # Fire and forget with a short timeout
+                requests.get(url, timeout=2)
+                results[t_id] = "Success"
+            except Exception as e:
+                results[t_id] = f"Failed: {str(e)}"
+        else:
+            results[t_id] = "Not found"
+            
+    return jsonify(results)
 
 def event_stream():
     """Generator that feeds the SSE stream for ble_popup.py"""

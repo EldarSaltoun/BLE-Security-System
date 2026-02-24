@@ -11,15 +11,28 @@
 #include "http_sender.h"
 #include "ntp_time.h"
 #include "scanner_config.h"
+#include "ble_scan.h" // Added this to access our new setter signatures
 #include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 
 static const char *TAG = "BLE_SCAN";
 
-// --- SEQUENCER GLOBALS ---
-static uint8_t g_active_channel = 37; 
-static uint8_t g_scan_mode = 0; 
+// --- DYNAMIC GLOBALS ---
+volatile uint8_t g_active_channel = 37; 
+volatile uint8_t g_scan_mode = 0; 
+volatile uint8_t g_system_state = 1; // 1 = Active, 0 = Idle
+
+// --- SETTERS FOR CMD_SERVER ---
+void ble_set_scan_mode(uint8_t mode) {
+    g_scan_mode = mode;
+    ESP_LOGI(TAG, "Scan mode dynamically updated to: %d", mode);
+}
+
+void ble_set_system_state(uint8_t state) {
+    g_system_state = state;
+    ESP_LOGI(TAG, "System state dynamically updated to: %s", state ? "ACTIVE" : "IDLE");
+}
 
 // NimBLE units are 0.625ms. 1600 * 0.625 = 1000ms (1 second).
 #define DWELL_INTERVAL 1600 
@@ -27,30 +40,30 @@ static uint8_t g_scan_mode = 0;
 
 /**
  * Mirror the hardware's natural hopping.
- * The ESP32 hardware naturally hops 37 -> 38 -> 39 at the start of every interval.
  */
 void ble_channel_sequencer_task(void *pv) {
-    if (g_scan_mode != 0) {
-        g_active_channel = g_scan_mode;
-        ESP_LOGI(TAG, "Locked to Fixed Channel: %d", g_active_channel);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG, "Software sequencer synced to 1s hardware interval.");
+    ESP_LOGI(TAG, "Software sequencer started.");
     while(1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
-        // Follow natural hardware rotation: 37 -> 38 -> 39
-        if (g_active_channel == 37)      g_active_channel = 38;
-        else if (g_active_channel == 38) g_active_channel = 39;
-        else                            g_active_channel = 37;
         
-        ESP_LOGD(TAG, "Hardware moved to Channel %d", g_active_channel);
+        if (g_scan_mode != 0) {
+            // Fixed mode: force the active channel to the requested mode
+            g_active_channel = g_scan_mode;
+        } else {
+            // Auto mode: Follow natural hardware rotation: 37 -> 38 -> 39
+            if (g_active_channel == 37)      g_active_channel = 38;
+            else if (g_active_channel == 38) g_active_channel = 39;
+            else                             g_active_channel = 37;
+        }
+        ESP_LOGD(TAG, "Hardware considered on Channel %d", g_active_channel);
     }
 }
 
 static int gap_event(struct ble_gap_event *ev, void *arg) {
     if (ev->type == BLE_GAP_EVENT_DISC) {
+        // --- NEW: Drop packet if system is IDLE ---
+        if (g_system_state == 0) return 0;
+
         const struct ble_gap_disc_desc *d = &ev->disc;
         ble_minimal_event_t hev = {0};
         
@@ -79,7 +92,11 @@ static void nimble_host_task(void *param) {
 void ble_scan_start(void) {
     nvs_handle_t h;
     if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK) {
-        nvs_get_u8(h, "scan_mode", &g_scan_mode);
+        uint8_t initial_mode;
+        // Load initial mode from NVS if available
+        if (nvs_get_u8(h, "scan_mode", &initial_mode) == ESP_OK) {
+            g_scan_mode = initial_mode;
+        }
         nvs_close(h);
     }
 

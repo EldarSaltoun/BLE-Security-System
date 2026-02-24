@@ -125,6 +125,12 @@ class BLEPopupApp:
         self.lbl_present = ttk.Label(top, text="Present devices: 0", font=("Segoe UI", 12, "bold"))
         self.lbl_present.pack(side="left")
 
+        # --- NEW: Reconnect Button and Status Label ---
+        self.btn_reconnect = ttk.Button(top, text="Reconnect Stream", command=self.start_reader)
+        self.btn_reconnect.pack(side="right", padx=5)
+        self.lbl_status = ttk.Label(top, text="Status: Starting...", font=("Segoe UI", 9))
+        self.lbl_status.pack(side="right", padx=10)
+
         cols = ("mac", "name", "rssi", "ch", "txpwr", "mfg", "adv_len", "adv_int", 
                 "has_services", "n_services_16", "n_services_128", "mfg_data", "hash", "scanner", "last_seen")
         self.tree = ttk.Treeview(self.root, columns=cols, show="headings", height=18)
@@ -136,14 +142,27 @@ class BLEPopupApp:
         self.tree.pack(fill="both", expand=True, padx=8, pady=8)
 
         self.stop_flag = threading.Event()
-        threading.Thread(target=self.reader_thread, daemon=True).start()
+        self.reader_thread_handle = None
+        self.start_reader() # Initial start
+        
         self.root.after(300, self.refresh_ui)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+    def start_reader(self):
+        """Initializes or restarts the background reader thread."""
+        self.lbl_status.config(text="Status: Connecting...", foreground="orange")
+        self.stop_flag.clear()
+        self.reader_thread_handle = threading.Thread(target=self.reader_thread, daemon=True)
+        self.reader_thread_handle.start()
+
     def reader_thread(self):
         try:
-            with requests.get(self.stream_url, stream=True, timeout=15) as r:
+            # Shortened timeout for connection so the UI doesn't hang too long on failure
+            with requests.get(self.stream_url, stream=True, timeout=5) as r:
+                r.raise_for_status()
+                self.lbl_status.config(text="Status: Connected", foreground="green")
                 for line in r.iter_lines(decode_unicode=True):
+                    if self.stop_flag.is_set(): break
                     if not line or not line.startswith("data: "): continue
                     ev = json.loads(line[6:])
                     try:
@@ -163,7 +182,9 @@ class BLEPopupApp:
                             scanner=ev.get("scanner", "UNK")
                         )
                     except Exception: continue
-        except Exception as e: print(f"Stream error: {e}")
+        except Exception as e: 
+            print(f"Stream error: {e}")
+            self.lbl_status.config(text="Status: Disconnected", foreground="red")
 
     def refresh_ui(self):
         self.model.prune_stale()

@@ -1,6 +1,7 @@
 #include "ble_scan.h"
 #include "http_sender.h"
 #include "wifi_config.h"
+#include "cmd_server.h" // <-- NEW INCLUSION
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -82,6 +83,10 @@ void app_main(void) {
     if (nvs_open("storage", NVS_READONLY, &h) == ESP_OK && nvs_get_str(h, "wifi_ssid", s, &s1) == ESP_OK) {
         nvs_get_str(h, "wifi_pass", p, &s2); nvs_close(h);
         wifi_init_sta(s, p);
+        
+        // --- NEW: START COMMAND SERVER AFTER WIFI CONNECTS ---
+        start_cmd_server(); 
+        
         time_sync_init(); http_sender_init(); ble_scan_start();
     } else {
         esp_netif_create_default_wifi_ap();

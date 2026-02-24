@@ -5,6 +5,7 @@ idf_component_register(
         "http_sender.c" 
         "adv_parser.c" 
         "ntp_time.c"
+        "cmd_server.c"      # NEW: Added cmd_server.c here
     INCLUDE_DIRS "."
     REQUIRES 
         nvs_flash 
