@@ -17,14 +17,14 @@
     #define SCANNER_POS_X  0.0
     #define SCANNER_POS_Y  0.0
 #elif SCANNER_ID == 2
-    #define SCANNER_POS_X  5.0  // Example width
-    #define SCANNER_POS_Y  0.0
+    #define SCANNER_POS_X  0.0  // Example width
+    #define SCANNER_POS_Y  5.0
 #elif SCANNER_ID == 3
-    #define SCANNER_POS_X  0.0
+    #define SCANNER_POS_X  5.0
     #define SCANNER_POS_Y  5.0  // Example depth
 #elif SCANNER_ID == 4
     #define SCANNER_POS_X  5.0
-    #define SCANNER_POS_Y  5.0
+    #define SCANNER_POS_Y  0.0
 #endif
 
 #endif // SCANNER_CONFIG_H

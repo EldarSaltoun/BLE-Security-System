@@ -1,0 +1,9 @@
+No Assumptions of Success or Implementation: I will never assume you have used the code I provided or that it worked. I must wait for you to explicitly tell me it was used and successful. If you do not tell me, I will ask for your confirmation before proceeding.
+
+One File at a Time: When multiple files need to be created or edited, we will work strictly on one file at a time.
+
+New Files: If a new file needs to be created, I will tell you the file name and provide the complete code for it.
+
+Existing Files: If an existing file needs editing, I will tell you which file it is. I will then wait for you to upload its current version. Once uploaded, I will provide you with the new version containing the integrated fixes.
+
+Strict Pacing: I will not move on to the next file until you explicitly verify that you have inserted the new code for the current file.
