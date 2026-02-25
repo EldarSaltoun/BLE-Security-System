@@ -68,7 +68,7 @@ class DeviceModel:
 
     def ingest(self, mac, rssi, channel, name, txpwr, mfg_id, adv_len,
                has_services, n_services_16, n_services_128, mfg_data,
-               packet_hash, ts_epoch_us, ts_mono_us, scanner):
+               packet_hash, ts_epoch_us, ts_mono_us, scanner, payload_str):
         
         mfg_resolved = resolve_mfg_name(mfg_id)
         now_mono = time.monotonic()
@@ -94,7 +94,15 @@ class DeviceModel:
             "last_mono_us": int(ts_mono_us), "adv_int": adv_int_ms, "scanner": scanner
         }
 
-        self.events.append({"mac": mac, "rssi": int(rssi), "channel": int(channel), "scanner": scanner, "ts": int(ts_epoch_us)})
+        # FIX: Include payload in the event list for JSON export
+        self.events.append({
+            "mac": mac, 
+            "rssi": int(rssi), 
+            "channel": int(channel), 
+            "scanner": scanner, 
+            "ts": int(ts_epoch_us),
+            "payload": payload_str
+        })
 
         with open(self.csv_log, "a", newline="") as f:
             writer = csv.writer(f)
@@ -125,7 +133,6 @@ class BLEPopupApp:
         self.lbl_present = ttk.Label(top, text="Present devices: 0", font=("Segoe UI", 12, "bold"))
         self.lbl_present.pack(side="left")
 
-        # --- NEW: Reconnect Button and Status Label ---
         self.btn_reconnect = ttk.Button(top, text="Reconnect Stream", command=self.start_reader)
         self.btn_reconnect.pack(side="right", padx=5)
         self.lbl_status = ttk.Label(top, text="Status: Starting...", font=("Segoe UI", 9))
@@ -143,13 +150,12 @@ class BLEPopupApp:
 
         self.stop_flag = threading.Event()
         self.reader_thread_handle = None
-        self.start_reader() # Initial start
+        self.start_reader() 
         
         self.root.after(300, self.refresh_ui)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def start_reader(self):
-        """Initializes or restarts the background reader thread."""
         self.lbl_status.config(text="Status: Connecting...", foreground="orange")
         self.stop_flag.clear()
         self.reader_thread_handle = threading.Thread(target=self.reader_thread, daemon=True)
@@ -157,7 +163,6 @@ class BLEPopupApp:
 
     def reader_thread(self):
         try:
-            # Shortened timeout for connection so the UI doesn't hang too long on failure
             with requests.get(self.stream_url, stream=True, timeout=5) as r:
                 r.raise_for_status()
                 self.lbl_status.config(text="Status: Connected", foreground="green")
@@ -166,20 +171,25 @@ class BLEPopupApp:
                     if not line or not line.startswith("data: "): continue
                     ev = json.loads(line[6:])
                     try:
-                        raw_payload = base64.b64decode(ev["p"])
+                        # FIX: Extract payload using either 'payload' or 'p' key
+                        payload_data = ev.get("payload", ev.get("p", ""))
+                        raw_payload = base64.b64decode(payload_data)
                         p_hash = f"{zlib.crc32(raw_payload) & 0xFFFFFFFF:08X}"
                         parsed = AdvParser.parse(raw_payload)
 
                         self.model.ingest(
-                            mac=ev["a"].upper(), rssi=ev["r"], channel=ev.get("c", 0),
+                            mac=ev.get("mac", ev.get("a", "UNK")).upper(), 
+                            rssi=ev.get("rssi", ev.get("r", 0)), 
+                            channel=ev.get("channel", ev.get("c", 0)),
                             name=parsed["name"], txpwr=parsed["tx_pwr"] or 0,
                             mfg_id=parsed["mfg_id"] or 0, adv_len=len(raw_payload),
                             has_services=1 if (parsed["services_16"] or parsed["services_128"]) else 0,
                             n_services_16=len(parsed["services_16"]), n_services_128=len(parsed["services_128"]),
                             mfg_data=parsed["mfg_data_hex"], packet_hash=p_hash,
-                            ts_epoch_us=ev.get("timestamp_epoch_us", ev["ts"]), 
-                            ts_mono_us=ev.get("timestamp_mono_us", ev["ts"]), 
-                            scanner=ev.get("scanner", "UNK")
+                            ts_epoch_us=ev.get("ts", ev.get("timestamp_epoch_us", 0)), 
+                            ts_mono_us=ev.get("ts", ev.get("timestamp_mono_us", 0)), 
+                            scanner=ev.get("scanner", "UNK"),
+                            payload_str=payload_data
                         )
                     except Exception: continue
         except Exception as e: 
@@ -215,11 +225,9 @@ class BLEPopupApp:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", required=True)
-    # Default is None so we can generate the unique timestamped name
     parser.add_argument("--json-out", default=None, help="Output JSON filename")
     args = parser.parse_args()
     
-    # --- UNIQUE FILENAME LOGIC ---
     if args.json_out is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         args.json_out = f"session_{timestamp}.json"

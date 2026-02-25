@@ -7,7 +7,7 @@ import time
 import requests
 import csv  
 import logging
-import os  # Included to check file existence for headers
+import os  
 from flask import Flask, request, jsonify, Response
 from zeroconf import ServiceInfo, Zeroconf  
 
@@ -46,17 +46,17 @@ def start_mdns(ip_address, port):
     return zc
 
 def print_calibration_progress():
-    """Prints a live tracker of the calibration progress in the terminal."""
+    """Prints a formatted table of progress with column and row titles."""
     print("\n--- Calibration Progress ---")
-    # Added header for terminal visibility
-    print(f"{'Scanner':<10} | {'Ch 37':<7} | {'Ch 38':<7} | {'Ch 39':<7}")
-    print("-" * 40)
+    print(f"{'Scanner ID':<12} | {'Ch37':<7} | {'Ch38':<7} | {'Ch39':<7}")
+    print("-" * 42)
+    
     for s_id, channels in calib_state["buckets"].items():
         c37 = len(channels.get(37, []))
         c38 = len(channels.get(38, []))
         c39 = len(channels.get(39, []))
-        print(f"ID {s_id:<7} | {c37:2}/{SAMPLES_PER_CHANNEL} | {c38:2}/{SAMPLES_PER_CHANNEL} | {c39:2}/{SAMPLES_PER_CHANNEL}")
-    print("----------------------------")
+        print(f"Scanner {s_id:<3} | {c37:2}/{SAMPLES_PER_CHANNEL} | {c38:2}/{SAMPLES_PER_CHANNEL} | {c39:2}/{SAMPLES_PER_CHANNEL}")
+    print("-" * 42)
 
 def decode_name_from_payload(payload_b64):
     """Extracts the BLE device name from a base64-encoded raw payload."""
@@ -78,24 +78,21 @@ def process_batch_async(scanner_id, events):
     for ev in events:
         ev['scanner'] = scanner_id
         
+        # Robust key extraction
+        mac = str(ev.get('a', ev.get('mac', ''))).upper().strip()
+        rssi = ev.get('r', ev.get('rssi'))
+        channel = ev.get('c', ev.get('channel'))
+        payload = ev.get('p', ev.get('payload', ''))
+        
         if calib_state["active"]:
-            # Support both condensed keys (a, r, c, p) and verbose keys
-            mac = str(ev.get('a', ev.get('mac', ''))).upper().strip()
-            rssi = ev.get('r', ev.get('rssi'))
-            channel = ev.get('c', ev.get('channel'))
-            payload = ev.get('p', ev.get('payload', ''))
-            
-            # Attempt to find name in dedicated field or raw payload
             name = str(ev.get('n', ev.get('name', ''))).lower()
             if not name or name == "unknown":
                 name = decode_name_from_payload(payload).lower()
 
-            # Trigger lock if target name is found
             if CALIBRATION_TARGET in name and not calib_state["target_mac"]:
                 calib_state["target_mac"] = mac
                 print(f"[*] SUCCESS: Locked via Name Match: {mac} ('{name}')")
 
-            # Collect data if MAC is locked
             if calib_state["target_mac"] and mac == calib_state["target_mac"]:
                 if scanner_id not in calib_state["buckets"]:
                     calib_state["buckets"][scanner_id] = {37: [], 38: [], 39: []}
@@ -108,7 +105,19 @@ def process_batch_async(scanner_id, events):
                     check_calib_completion()
 
         try:
-            data_queue.put_nowait(ev)
+            # Dual-Key approach: a/r/c for popup compatibility, mac/payload for your engine
+            stream_ev = {
+                "a": mac,       # Popup expects 'a'
+                "r": rssi,      # Popup expects 'r'
+                "c": channel,   # Popup expects 'c'
+                "mac": mac,
+                "rssi": rssi,
+                "channel": channel,
+                "scanner": scanner_id,
+                "payload": payload,
+                "ts": int(time.time() * 1000000)
+            }
+            data_queue.put_nowait(stream_ev)
         except queue.Full: pass 
 
 @app.route('/api/ble/ingest', methods=['POST'])
@@ -157,19 +166,18 @@ def check_calib_completion():
     if calib_state["active"]: save_calibration_results()
 
 def save_calibration_results():
-    log_file = 'calibration_log.csv'
-    # Check if headers need to be written
-    write_header = not os.path.exists(log_file)
+    filename = 'calibration_log.csv'
+    file_exists = os.path.isfile(filename)
     
-    with open(log_file, 'a', newline='') as f:
+    with open(filename, 'a', newline='') as f:
         writer = csv.writer(f)
-        if write_header:
-            writer.writerow(['X_Coord', 'Y_Coord', 'Z_Coord', 'Scanner_ID', 'Avg_RSSI_Ch37', 'Avg_RSSI_Ch38', 'Avg_RSSI_Ch39'])
+        if not file_exists:
+            writer.writerow(['X_Pos', 'Y_Pos', 'Z_Pos', 'Scanner_ID', 'Avg_RSSI_Ch37', 'Avg_RSSI_Ch38', 'Avg_RSSI_Ch39'])
             
         for s_id, channels in calib_state["buckets"].items():
             avgs = [sum(channels[ch])/len(channels[ch]) if channels[ch] else 0 for ch in [37, 38, 39]]
             writer.writerow([calib_state["coords"]["x"], calib_state["coords"]["y"], calib_state["coords"]["z"], s_id] + avgs)
-            
+    
     print("\n[!] Point Saved. System IDLE.")
     calib_state["active"] = False
     requests.post("http://localhost:8000/api/control/send", json={"target": "all", "state": 0})
