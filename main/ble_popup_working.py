@@ -100,7 +100,7 @@ class ScannerControlWindow(tk.Toplevel):
         self._setup_control_tab(ctrl_frame)
 
         calib_frame = ttk.Frame(notebook)
-        notebook.add(calib_frame, text="3D Calibration")
+        notebook.add(calib_frame, text="Grid Calibration")
         self._setup_calib_tab(calib_frame)
 
     def _setup_control_tab(self, frame):
@@ -108,24 +108,55 @@ class ScannerControlWindow(tk.Toplevel):
         global_frame.pack(fill="x", padx=10, pady=5)
         ttk.Button(global_frame, text="All IDLE", command=lambda: self.send_cmd("all", state=0)).pack(side="left", padx=5)
         ttk.Button(global_frame, text="All ACTIVE", command=lambda: self.send_cmd("all", state=1)).pack(side="left", padx=5)
-        ttk.Button(global_frame, text="Rotate Mode", command=lambda: self.send_cmd("all", mode=0)).pack(side="right", padx=5)
+        ttk.Button(global_frame, text="Rotate Label Mode", command=lambda: self.send_cmd("all", mode=0)).pack(side="right", padx=5)
         self.list_frame = ttk.LabelFrame(frame, text="Active Scanners", padding=10)
         self.list_frame.pack(fill="both", expand=True, padx=10, pady=5)
         ttk.Button(frame, text="Refresh Scanner List", command=self.refresh_scanners).pack(pady=5)
         self.refresh_scanners()
 
     def _setup_calib_tab(self, frame):
-        ttk.Label(frame, text="3D Calibration Point", font=('Segoe UI', 12, 'bold')).pack(pady=10)
-        self.coords = {"x": tk.DoubleVar(value=0.0), "y": tk.DoubleVar(value=0.0), "z": tk.DoubleVar(value=1.0)}
+        ttk.Label(frame, text="3x3 Grid Calibration", font=('Segoe UI', 12, 'bold')).pack(pady=10)
+
+        help_text = (
+            "Place EldarCalib in ONE grid block, enter that block number, "
+            "then start sampling. The receiver will collect 100 valid RSSI "
+            "samples per active scanner and ignore pseudo-channel labels."
+        )
+        ttk.Label(frame, text=help_text, wraplength=560, justify="center").pack(padx=15, pady=5)
+
+        self.grid_block_val = tk.IntVar(value=1)
+
         entry_frame = ttk.Frame(frame)
-        entry_frame.pack(pady=10)
-        for i, (axis, var) in enumerate(self.coords.items()):
-            ttk.Label(entry_frame, text=f"{axis.upper()} (m):").grid(row=i, column=0, padx=5, pady=5)
-            ttk.Entry(entry_frame, textvariable=var, width=10).grid(row=i, column=1, padx=5, pady=5)
-        self.btn_calib = tk.Button(frame, text="Start Sampling Point", bg="green", fg="white", command=self.start_calib, font=('Segoe UI', 10, 'bold'))
+        entry_frame.pack(pady=12)
+
+        ttk.Label(entry_frame, text="Grid Block (1-9):").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        self.grid_block_spin = ttk.Spinbox(
+            entry_frame,
+            from_=1,
+            to=9,
+            textvariable=self.grid_block_val,
+            width=8
+        )
+        self.grid_block_spin.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+
+        self.btn_calib = tk.Button(
+            frame,
+            text="Start Grid Block Sampling",
+            bg="green",
+            fg="white",
+            command=self.start_calib,
+            font=('Segoe UI', 10, 'bold')
+        )
         self.btn_calib.pack(pady=20)
+
         self.lbl_cal_status = ttk.Label(frame, text="Status: Ready")
         self.lbl_cal_status.pack()
+
+        ttk.Label(
+            frame,
+            text="Output files: calibration_raw.csv and calibration_summary.csv",
+            foreground="gray"
+        ).pack(pady=8)
 
     def refresh_scanners(self):
         for w in self.list_frame.winfo_children(): w.destroy()
@@ -153,13 +184,41 @@ class ScannerControlWindow(tk.Toplevel):
         except Exception as e: print(f"Cmd Failed: {e}")
 
     def start_calib(self):
-        payload = {"coords": {k: v.get() for k, v in self.coords.items()}}
+        try:
+            grid_block = int(self.grid_block_val.get())
+        except Exception:
+            self.lbl_cal_status.config(text="Status: Invalid grid block", foreground="red")
+            return
+
+        if grid_block < 1 or grid_block > 9:
+            self.lbl_cal_status.config(text="Status: Grid block must be 1-9", foreground="red")
+            return
+        payload = {"grid_block": grid_block}
+
         try:
             r = requests.post(f"{self.calib_base}/start", json=payload, timeout=2)
-            color = "blue" if r.status_code == 200 else "red"
-            self.lbl_cal_status.config(text=f"Status: {r.json().get('status', 'Error')}", foreground=color)
+            body = {}
+            try:
+                body = r.json()
+            except Exception:
+                body = {}
+
+            if r.status_code == 200:
+                samples = body.get("samples_per_scanner", 100)
+                session_id = body.get("session_id", "")
+                suffix = f" | {session_id}" if session_id else ""
+                self.lbl_cal_status.config(
+                    text=f"Status: Sampling block {grid_block} ({samples}/scanner){suffix}",
+                    foreground="blue"
+                )
+            else:
+                self.lbl_cal_status.config(
+                    text=f"Status: Server Error ({r.status_code}) {body.get('status', '')}",
+                    foreground="red"
+                )
         except Exception:
             self.lbl_cal_status.config(text="Status: Connection Error", foreground="red")
+
 
 # ---------------- Data Model ----------------
 class DeviceModel:

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BLE Grid Localization</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #071018;
+      --panel: #101b26;
+      --panel2: #142536;
+      --border: #28445f;
+      --text: #eaf6ff;
+      --muted: #89a6bc;
+      --accent: #47d7ff;
+      --good: #43e97b;
+      --warn: #ffcf5a;
+      --bad: #ff6b6b;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Arial, sans-serif;
+      background: radial-gradient(circle at top left, #0f2b3d, var(--bg) 55%);
+      color: var(--text);
+    }
+
+    header {
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(5, 12, 18, 0.84);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.5px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-top: 6px;
+      font-size: 14px;
+    }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: minmax(600px, 1fr) 360px;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(170px, 1fr));
+      grid-auto-rows: minmax(190px, auto);
+      gap: 14px;
+    }
+
+    .block {
+      background: linear-gradient(145deg, rgba(20, 37, 54, 0.96), rgba(10, 22, 32, 0.96));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+      min-height: 190px;
+      box-shadow: 0 0 22px rgba(71, 215, 255, 0.08);
+    }
+
+    .block-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .block-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .device-count {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .device {
+      border: 1px solid rgba(71, 215, 255, 0.28);
+      background: rgba(71, 215, 255, 0.08);
+      border-radius: 12px;
+      padding: 10px;
+      margin: 8px 0;
+    }
+
+    .device .uid {
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .device .label {
+      margin-top: 3px;
+      font-size: 13px;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+
+    .meta {
+      margin-top: 7px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      font-size: 11px;
+      padding: 3px 7px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--muted);
+    }
+
+    .chip.high {
+      color: var(--good);
+      border-color: rgba(67, 233, 123, 0.5);
+    }
+
+    .chip.medium {
+      color: var(--warn);
+      border-color: rgba(255, 207, 90, 0.5);
+    }
+
+    .chip.low {
+      color: var(--bad);
+      border-color: rgba(255, 107, 107, 0.5);
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 36px;
+      text-align: center;
+      opacity: 0.8;
+    }
+
+    aside {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .panel {
+      background: rgba(16, 27, 38, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .panel h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      margin: 4px 0;
+    }
+
+    .kv strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .small-list {
+      max-height: 360px;
+      overflow: auto;
+    }
+
+    .small-item {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 9px 0;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .small-item:first-child {
+      border-top: 0;
+    }
+
+    .error {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    @media (max-width: 980px) {
+      .wrap {
+        grid-template-columns: 1fr;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>BLE Grid Localization</h1>
+  <div class="subtitle">
+    Mobile/mobile-candidate devices only. Stationary/background tracks are filtered out.
+  </div>
+</header>
+
+<div class="wrap">
+  <main>
+    <div id="grid" class="grid"></div>
+  </main>
+
+  <aside>
+    <div class="panel">
+      <h2>Localization status</h2>
+      <div class="kv"><span>Loaded</span><strong id="loaded">-</strong></div>
+      <div class="kv"><span>Model</span><strong id="model">-</strong></div>
+      <div class="kv"><span>Updated</span><strong id="updated">-</strong></div>
+      <div class="kv"><span>Message</span><strong id="message">-</strong></div>
+      <button onclick="reloadLocalization()" style="margin-top:10px;padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--panel2);color:var(--text);cursor:pointer;">
+        Reload calibration
+      </button>
+    </div>
+
+    <div class="panel">
+      <h2>Mobile candidates without block</h2>
+      <div id="unlocalized" class="small-list"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Skipped stationary/background preview</h2>
+      <div id="skipped" class="small-list"></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const DEFAULT_LAYOUT = [[1,2,3],[6,5,4],[7,8,9]];
+
+function confidenceClass(conf) {
+  const value = String(conf || "").toLowerCase();
+  if (value === "high") return "high";
+  if (value === "medium") return "medium";
+  return "low";
+}
+
+function fmtProb(p) {
+  const v = Number(p || 0);
+  return `${Math.round(v * 100)}%`;
+}
+
+function deviceCard(d) {
+  const conf = d.confidence || "LOW";
+  const top2 = Array.isArray(d.top2_scanners) ? d.top2_scanners.join("/") : "-";
+  const uuids = Array.isArray(d.mobile_service_uuids) && d.mobile_service_uuids.length
+    ? d.mobile_service_uuids.join(",")
+    : "";
+  return `
+    <div class="device">
+      <div class="uid">${d.uid || "unknown"}</div>
+      <div class="label">${d.label || ""}</div>
+      <div class="meta">
+        <span class="chip ${confidenceClass(conf)}">${conf}</span>
+        <span class="chip">P=${fmtProb(d.probability)}</span>
+        <span class="chip">${d.role || ""}</span>
+        <span class="chip">top2 ${top2}</span>
+        ${uuids ? `<span class="chip">${uuids}</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function render(data) {
+  const loc = data.localization || {};
+  const layout = data.layout || DEFAULT_LAYOUT;
+  const blocks = data.blocks || {};
+
+  document.getElementById("loaded").textContent = loc.loaded ? "yes" : "no";
+  document.getElementById("loaded").className = loc.loaded ? "" : "error";
+  document.getElementById("model").textContent = loc.model || "-";
+  document.getElementById("updated").textContent = data.updated_at || "-";
+  document.getElementById("message").textContent = loc.message || "-";
+
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+
+  layout.flat().forEach(blockId => {
+    const id = String(blockId);
+    const devices = blocks[id] || [];
+    const html = `
+      <section class="block">
+        <div class="block-head">
+          <div class="block-title">Block ${id}</div>
+          <div class="device-count">${devices.length} device${devices.length === 1 ? "" : "s"}</div>
+        </div>
+        ${devices.length ? devices.map(deviceCard).join("") : `<div class="empty">No localized mobile device</div>`}
+      </section>
+    `;
+    grid.insertAdjacentHTML("beforeend", html);
+  });
+
+  const unlocalized = document.getElementById("unlocalized");
+  const mobileUnlocalized = data.mobile_unlocalized || [];
+  unlocalized.innerHTML = mobileUnlocalized.length
+    ? mobileUnlocalized.map(d => `
+      <div class="small-item">
+        <strong>${d.uid || ""}</strong> ${d.label || ""}<br>
+        role=${d.role || ""}<br>
+        reason=${d.skip_reason || ""}
+      </div>
+    `).join("")
+    : `<div class="small-item">None</div>`;
+
+  const skipped = document.getElementById("skipped");
+  const skippedPreview = data.skipped_preview || [];
+  skipped.innerHTML = skippedPreview.length
+    ? skippedPreview.map(d => `
+      <div class="small-item">
+        <strong>${d.uid || ""}</strong> ${d.label || ""}<br>
+        role=${d.role || ""}, strongest=${d.strongest_scanner || "-"}
+      </div>
+    `).join("")
+    : `<div class="small-item">None</div>`;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch("/api/localization", {cache: "no-store"});
+    const data = await res.json();
+    render(data);
+  } catch (err) {
+    document.getElementById("message").textContent = `fetch failed: ${err}`;
+    document.getElementById("message").className = "error";
+  }
+}
+
+async function reloadLocalization() {
+  try {
+    await fetch("/api/localization/reload", {method: "POST"});
+    await refresh();
+  } catch (err) {
+    alert(`Reload failed: ${err}`);
+  }
+}
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

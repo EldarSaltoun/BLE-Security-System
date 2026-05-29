@@ -11,39 +11,65 @@ class CalibrationTab(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent)
 
-        tk.Label(self, text="3D Calibration Point", font=('Arial', 12, 'bold')).pack(pady=10)
+        tk.Label(self, text="3x3 Grid Calibration", font=('Arial', 12, 'bold')).pack(pady=10)
 
-        # Coordinates
-        self.x_val = tk.DoubleVar(value=0.0)
-        self.y_val = tk.DoubleVar(value=0.0)
-        self.z_val = tk.DoubleVar(value=1.0) # Default pocket height
+        info = (
+            "Place EldarCalib in ONE grid block, enter block 1-9, and start sampling. "
+            "The receiver collects 100 valid RSSI samples per active scanner and ignores pseudo-channel labels."
+        )
+        tk.Label(self, text=info, wraplength=520, justify="center").pack(padx=12, pady=5)
 
-        frame_coords = tk.Frame(self)
-        frame_coords.pack(pady=10)
+        self.grid_block_val = tk.IntVar(value=1)
 
-        tk.Label(frame_coords, text="X Position (m):").grid(row=0, column=0, padx=5, pady=5)
-        tk.Entry(frame_coords, textvariable=self.x_val, width=10).grid(row=0, column=1, padx=5, pady=5)
+        frame_inputs = tk.Frame(self)
+        frame_inputs.pack(pady=10)
 
-        tk.Label(frame_coords, text="Y Position (m):").grid(row=1, column=0, padx=5, pady=5)
-        tk.Entry(frame_coords, textvariable=self.y_val, width=10).grid(row=1, column=1, padx=5, pady=5)
+        tk.Label(frame_inputs, text="Grid Block (1-9):").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        tk.Spinbox(frame_inputs, from_=1, to=9, textvariable=self.grid_block_val, width=8).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-        tk.Label(frame_coords, text="Z Position (m):").grid(row=2, column=0, padx=5, pady=5)
-        tk.Entry(frame_coords, textvariable=self.z_val, width=10).grid(row=2, column=1, padx=5, pady=5)
-
-        self.btn = tk.Button(self, text="Start Sampling Point", command=self.start_calib, bg="green", fg="white", font=('Arial', 10, 'bold'))
+        self.btn = tk.Button(
+            self,
+            text="Start Grid Block Sampling",
+            command=self.start_calib,
+            bg="green",
+            fg="white",
+            font=('Arial', 10, 'bold')
+        )
         self.btn.pack(pady=20)
 
         self.status = tk.Label(self, text="Status: Ready", font=('Arial', 10))
         self.status.pack()
 
+        tk.Label(
+            self,
+            text="Output files: calibration_raw.csv and calibration_summary.csv",
+            fg="gray"
+        ).pack(pady=8)
+
     def start_calib(self):
-        payload = {
-            "coords": {"x": self.x_val.get(), "y": self.y_val.get(), "z": self.z_val.get()}
-        }
+        try:
+            grid_block = int(self.grid_block_val.get())
+        except Exception:
+            self.status.config(text="Status: Invalid grid block", fg="red")
+            return
+
+        if grid_block < 1 or grid_block > 9:
+            self.status.config(text="Status: Grid block must be 1-9", fg="red")
+            return
+        payload = {"grid_block": grid_block}
+
         try:
             r = requests.post(f"{CALIB_API_BASE}/start", json=payload, timeout=REQUEST_TIMEOUT_S)
             if r.status_code == 200:
-                self.status.config(text="Status: Sampling... Stay still!", fg="blue")
+                body = {}
+                try:
+                    body = r.json()
+                except Exception:
+                    body = {}
+                samples = body.get("samples_per_scanner", 100)
+                session_id = body.get("session_id", "")
+                suffix = f" | {session_id}" if session_id else ""
+                self.status.config(text=f"Status: Sampling block {grid_block} ({samples}/scanner){suffix}", fg="blue")
             else:
                 detail = ""
                 try:
@@ -66,7 +92,7 @@ class ControlTab(ttk.Frame):
         tk.Button(global_frame, text="All IDLE (Sleep)", bg="#ff9999", command=lambda: self.send_cmd("all", state=0)).pack(side="left", padx=5)
         tk.Button(global_frame, text="All ACTIVE (Scan)", bg="#99ff99", command=lambda: self.send_cmd("all", state=1)).pack(side="left", padx=5)
 
-        tk.Button(global_frame, text="All Auto Mode (Rotate)", command=lambda: self.send_cmd("all", mode=0)).pack(side="right", padx=5)
+        tk.Button(global_frame, text="All Auto Label Mode", command=lambda: self.send_cmd("all", mode=0)).pack(side="right", padx=5)
 
         # Scanner List Frame
         self.list_frame = tk.LabelFrame(self, text="Active Scanners", padx=10, pady=10)
@@ -105,7 +131,7 @@ class ControlTab(ttk.Frame):
                 tk.Button(frame, text="Idle", command=lambda id=s_id: self.send_cmd(id, state=0)).pack(side="left", padx=2)
                 tk.Button(frame, text="Active", command=lambda id=s_id: self.send_cmd(id, state=1)).pack(side="left", padx=2)
 
-                tk.Label(frame, text=" | Ch:").pack(side="left", padx=5)
+                tk.Label(frame, text=" | Label:").pack(side="left", padx=5)
                 tk.Button(frame, text="Auto", command=lambda id=s_id: self.send_cmd(id, mode=0)).pack(side="left", padx=2)
                 tk.Button(frame, text="37", command=lambda id=s_id: self.send_cmd(id, mode=37)).pack(side="left", padx=2)
                 tk.Button(frame, text="38", command=lambda id=s_id: self.send_cmd(id, mode=38)).pack(side="left", padx=2)
@@ -154,7 +180,7 @@ class App(tk.Tk):
         self.notebook.add(self.control_tab, text="Scanner Control")
 
         self.calib_tab = CalibrationTab(self.notebook)
-        self.notebook.add(self.calib_tab, text="3D Calibration")
+        self.notebook.add(self.calib_tab, text="Grid Calibration")
 
 if __name__ == "__main__":
     app = App()
